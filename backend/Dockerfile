@@ -3,11 +3,11 @@ FROM python:3.11-slim
 WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_cache_dir=1
 
-# Install deps
+# Install deps with explicit pip3
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt || \
-    pip install --no-cache-dir fastapi uvicorn sqlalchemy asyncpg pydantic pydantic-settings python-jose passlib python-multipart redis httpx bcrypt shortuuid python-dotenv || true
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copy app
 COPY app/ ./app/

@@ -1,55 +1,42 @@
 # Render.com Blueprint for AI Gateway
-# Deploy API + PostgreSQL + Redis + Frontend on Render
 
 api:
   type: web
   region: oregon
   plan: pro
   runtime: docker
-  dockerfilePath: ./backend/Dockerfile
+  dockerfilePath: Dockerfile
   healthCheckPath: /health
   envVars:
     - key: DATABASE_URL
-      fromDatabase:
-        serviceName: postgres
+      fromService:
+        type: psql
+        name: ai-gateway-db
         envVarName: DATABASE_URL
     - key: REDIS_URL
       fromService:
         type: redis
-        name: redis
+        name: ai-gateway-redis
         envVarName: REDIS_URL
     - key: SECRET_KEY
-      generateValue: true
+      value: your-secret-key-here-change-in-production
+    - key: DEBUG
+      value: false
     - key: ADMIN_EMAIL
       value: admin@example.com
     - key: ADMIN_PASSWORD
       generateValue: true
     - key: PYTHONUNBUFFERED
       value: "1"
+  diskOk: true
 
-postgres:
-  name: ai-gateway-postgres
+db:
+  type: psql
   plan: pro
-  databaseName: ai_gateway
-  postgresVersion: "16"
+  databaseName: ai-gateway
+  ipAllowList: []
 
 redis:
-  name: ai-gateway-redis
-  plan: free
-  redisVersion: "7"
-
-frontend:
-  type: web
-  region: oregon
+  type: redis
   plan: pro
-  runtime: docker
-  dockerfilePath: ./frontend/Dockerfile
-  healthCheckPath: /
-  envVars:
-    - key: NEXT_PUBLIC_API_URL
-      fromService:
-        type: web
-        name: api
-        envVarName: RENDERExternalURL
-      append: false
-      suffix: ""
+  maxmemoryPolicy: allkeys-lru
