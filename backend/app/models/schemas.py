@@ -70,6 +70,7 @@ class ProviderTestResult(BaseModel):
 # Model Schemas
 # ---------------------------------------------------------------------------
 class GatewayModelCreate(BaseModel):
+    model_config = {"protected_namespaces": ()}
     id: str
     name: str
     provider_id: Optional[str] = None
@@ -83,6 +84,7 @@ class GatewayModelCreate(BaseModel):
 
 
 class GatewayModelUpdate(BaseModel):
+    model_config = {"protected_namespaces": ()}
     name: Optional[str] = None
     provider_id: Optional[str] = None
     model_type: Optional[str] = None
@@ -95,6 +97,7 @@ class GatewayModelUpdate(BaseModel):
 
 
 class GatewayModelResponse(BaseModel):
+    model_config = {"protected_namespaces": ()}
     id: str
     name: str
     provider_id: Optional[str]

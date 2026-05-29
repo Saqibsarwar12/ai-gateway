@@ -1,4 +1,4 @@
-"""Overview dashboard page."""
+
 "use client";
 import { useState, useEffect } from "react";
 import { Activity, Users, Server, Zap, TrendingUp, TrendingDown, Clock, AlertTriangle, CheckCircle2 } from "lucide-react";

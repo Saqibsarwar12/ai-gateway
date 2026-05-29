@@ -1,4 +1,4 @@
-"""API Playground — test requests directly."""
+
 "use client";
 import { useState } from "react";
 import { Play, Copy, Trash2, CheckCircle, XCircle } from "lucide-react";

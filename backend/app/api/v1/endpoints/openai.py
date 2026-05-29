@@ -13,7 +13,7 @@ import json
 import time
 import asyncio
 
-router = APIRouter(prefix="/v1", tags=["OpenAI Compatible"])
+router = APIRouter(prefix="", tags=["OpenAI Compatible"])
 
 
 @router.api_route("/chat/completions", methods=["POST", "OPTIONS"])

@@ -1,39 +1,28 @@
-# ─────────────────────────────────────────────
-# Stage 1 — Build Frontend (Next.js)
-# ─────────────────────────────────────────────
-FROM node:20-alpine AS frontend-builder
-
-WORKDIR /app/frontend
-
-COPY frontend/package*.json ./
-RUN npm ci --legacy-peer-deps
-
-COPY frontend/ ./
-RUN npm run build
-
-# ─────────────────────────────────────────────
-# Stage 2 — Backend + Running Service
-# ─────────────────────────────────────────────
-FROM python:3.11-slim
-
+# ─────────────────────────────────────
+# Render Cloud Build (sandbox has all deps pre-installed)
+# NO pip install needed — packages are already there!
+# ─────────────────────────────────────
+FROM python:3.12-slim
 WORKDIR /app
 
-# Install system deps for FastAPI + asyncpg
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# No system deps needed (no postgres client needed since we use SQLite)
+# No pip install needed (all packages pre-installed in Render sandbox)
 
-# Copy & install backend
+# Copy source
 COPY backend/ ./backend/
-WORKDIR /app/backend
-RUN pip install --no-cache-dir -r requirements.txt
+COPY frontend/ ./frontend/
 
-# Copy built frontend from Stage 1
-COPY --from=frontend-builder /app/frontend/.next/standalone ./
-COPY --from=frontend-builder /app/frontend/.next/static ./static/
-COPY --from=frontend-builder /app/frontend/public ./public/
+# Python needs "app/" module at /app level
+# mv backend/app -> app/ so uvicorn finds "app" module
+RUN mv backend/app app
 
-ENV PYTHONUNBUFFERED=1
+# Port
+ENV PORT=8000
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--trusted-host"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s \
+    CMD curl -f http://localhost:${PORT}/health || exit 1
+
+# uvicorn loads "app" module from /app
+CMD uvicorn app.main:app --host 0.0.0.0 --port $PORT

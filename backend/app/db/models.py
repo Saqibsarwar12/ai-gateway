@@ -1,26 +1,27 @@
 """SQLAlchemy models for AI Gateway."""
-from sqlalchemy import Column, String, Text, Boolean, Integer, Float, JSON, DateTime, ForeignKey, Index, Enum as SAEnum
+from sqlalchemy import Column, String, Text, Boolean, Integer, Float, JSON, DateTime, ForeignKey, Index
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.session import Base
 import enum
 
 
-class UserRole(str, enum):
+class UserRole(enum.Enum):
     ADMIN = "admin"
     STAFF = "staff"
     USER = "user"
     ENTERPRISE = "enterprise"
 
 
-class ProviderStatus(str, enum):
+class ProviderStatus(enum.Enum):
     ACTIVE = "active"
     INACTIVE = "inactive"
     ERROR = "error"
     UNKNOWN = "unknown"
 
 
-class RoutingStrategy(str, enum):
+class RoutingStrategy(enum.Enum):
     LATENCY = "latency"
     COST = "cost"
     WEIGHTED = "weighted"
@@ -36,11 +37,11 @@ class ProviderModel(Base):
 
     id = Column(String(64), primary_key=True)
     name = Column(String(255), nullable=False)
-    provider_type = Column(String(64), nullable=False)  # openai | anthropic | custom | etc.
+    provider_type = Column(String(64), nullable=False)
     base_url = Column(String(512), nullable=False)
     api_key = Column(Text, nullable=False)
     headers = Column(JSON, default={})
-    models = Column(JSON, default=[])  # list of model IDs
+    models = Column(JSON, default=[])
     timeout = Column(Integer, default=60)
     retry_policy = Column(JSON, default={"max_retries": 3, "backoff_factor": 1.5})
     weight = Column(Integer, default=100)
@@ -50,14 +51,12 @@ class ProviderModel(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    # Stats
     total_requests = Column(Integer, default=0)
     failed_requests = Column(Integer, default=0)
     avg_latency_ms = Column(Float, default=0.0)
     avg_cost_per_1k = Column(Float, default=0.0)
     last_seen_at = Column(DateTime(timezone=True), nullable=True)
 
-    # Custom config
     extra = Column(JSON, default={})
 
     routes = relationship("RoutingRuleModel", back_populates="provider")
@@ -65,7 +64,7 @@ class ProviderModel(Base):
 
 
 # ---------------------------------------------------------------------------
-# Models (available in the gateway)
+# Gateway Models
 # ---------------------------------------------------------------------------
 class GatewayModel(Base):
     __tablename__ = "gateway_models"
@@ -73,7 +72,7 @@ class GatewayModel(Base):
     id = Column(String(128), primary_key=True)
     name = Column(String(255), nullable=False)
     provider_id = Column(String(64), ForeignKey("providers.id"), nullable=True)
-    model_type = Column(String(64), nullable=False)  # chat | completion | embedding | image | audio
+    model_type = Column(String(64), nullable=False)
     enabled = Column(Boolean, default=True)
     hidden = Column(Boolean, default=False)
     extra_params = Column(JSON, default={})
@@ -99,7 +98,7 @@ class User(Base):
     is_verified = Column(Boolean, default=False)
     ip_whitelist = Column(JSON, default=[])
     allowed_ips = Column(JSON, default=[])
-    rate_limit = Column(Integer, default=100)  # per minute
+    rate_limit = Column(Integer, default=100)
     burst_limit = Column(Integer, default=20)
     max_tokens = Column(Integer, default=-1)
     trusted = Column(Boolean, default=False)
@@ -120,8 +119,8 @@ class ApiKey(Base):
 
     id = Column(String(64), primary_key=True)
     user_id = Column(String(64), ForeignKey("users.id"), nullable=False)
-    key_hash = Column(String(255), nullable=False)  # bcrypt hash
-    key_prefix = Column(String(16), nullable=False)  # first 8 chars for display
+    key_hash = Column(String(255), nullable=False)
+    key_prefix = Column(String(16), nullable=False)
     name = Column(String(255), default="")
     is_active = Column(Boolean, default=True)
     expires_on = Column(DateTime(timezone=True), nullable=True)
@@ -142,10 +141,10 @@ class RoutingRuleModel(Base):
     name = Column(String(255), nullable=False)
     strategy = Column(SAEnum(RoutingStrategy), default=RoutingStrategy.LATENCY, nullable=False)
     provider_id = Column(String(64), ForeignKey("providers.id"), nullable=True)
-    models = Column(JSON, default=[])  # models this rule applies to
-    priority = Column(Integer, default=50)  # higher = used first
+    models = Column(JSON, default=[])
+    priority = Column(Integer, default=50)
     is_active = Column(Boolean, default=True)
-    conditions = Column(JSON, default={})  # custom match conditions
+    conditions = Column(JSON, default={})
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     provider = relationship("ProviderModel", back_populates="routes")

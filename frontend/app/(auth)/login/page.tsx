@@ -1,4 +1,4 @@
-"""Login page with admin credentials."""
+
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";

@@ -1,126 +1,131 @@
-"""Users management page."""
+/* TSX file */
 "use client";
 import { useState } from "react";
-import { Users, Plus, Search, Ban, CheckCircle, Key, MoreHorizontal } from "lucide-react";
+import { Users, Plus, Search, Key, Trash2, Edit2, Copy, CheckCircle, XCircle, Shield } from "lucide-react";
 
 const mockUsers = [
-  { id: "usr-001", email: "alice@company.io", name: "Alice Chen", role: "enterprise", is_active: true, rate_limit: 500, credits: 2847.50, total_requests: 92841, created_at: "2024-08-15" },
-  { id: "usr-002", email: "bob@startup.co", name: "Bob Martinez", role: "user", is_active: true, rate_limit: 100, credits: 420.00, total_requests: 12847, created_at: "2024-09-02" },
-  { id: "usr-003", email: "carol@research.edu", name: "Carol White", role: "staff", is_active: true, rate_limit: 200, credits: 0, total_requests: 23491, created_at: "2024-07-20" },
-  { id: "usr-004", email: "david@dev.io", name: "David Kim", role: "user", is_active: false, rate_limit: 100, credits: 12.50, total_requests: 3201, created_at: "2024-10-01" },
-  { id: "usr-005", email: "admin@yourco.com", name: "Admin User", role: "admin", is_active: true, rate_limit: 1000, credits: 99999, total_requests: 182947, created_at: "2024-06-01" },
-  { id: "usr-006", email: "eve@freelancer.net", name: "Eve Patel", role: "user", is_active: true, rate_limit: 50, credits: 89.00, total_requests: 4820, created_at: "2024-10-15" },
+  { id: "u1", name: "Acme Corp", email: "api@acme.com", tier: "enterprise", api_keys: ["sk-live-xxxx"], is_active: true, used_tokens: 1_250_000, limit_tokens: 10_000_000, created: "2025-01-15" },
+  { id: "u2", name: "StartupXYZ", email: "dev@startupxyz.io", tier: "pro", api_keys: ["sk-live-yyyy"], is_active: true, used_tokens: 450_000, limit_tokens: 2_000_000, created: "2025-03-01" },
+  { id: "u3", name: "DevPerson", email: "dev@example.com", tier: "free", api_keys: ["sk-test-zzzz"], is_active: true, used_tokens: 12_000, limit_tokens: 100_000, created: "2025-04-10" },
+  { id: "u4", name: "BigCorp Inc", email: "ml@bigcorp.com", tier: "enterprise", api_keys: ["sk-live-aaaa"], is_active: false, used_tokens: 8_900_000, limit_tokens: 100_000_000, created: "2024-11-20" },
 ];
-
-const roleBadge = (role: string) => ({
-  admin: <span className="badge badge-red">Admin</span>,
-  staff: <span className="badge badge-purple">Staff</span>,
-  enterprise: <span className="badge badge-blue">Enterprise</span>,
-  user: <span className="badge badge-green">User</span>,
-}[role] || <span className="badge badge-green">User</span>);
 
 export default function UsersPage() {
   const [users] = useState(mockUsers);
   const [search, setSearch] = useState("");
-  const [filterRole, setFilterRole] = useState("all");
 
-  const filtered = users.filter(u => {
-    const matchSearch = u.email.includes(search) || u.name.includes(search);
-    const matchRole = filterRole === "all" || u.role === filterRole;
-    return matchSearch && matchRole;
-  });
+  const filtered = users.filter(
+    (u) =>
+      u.name.toLowerCase().includes(search.toLowerCase()) ||
+      u.email.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const tierColors: Record<string, string> = {
+    free: "bg-slate-600/20 text-slate-400",
+    pro: "bg-blue-500/20 text-blue-400",
+    enterprise: "bg-purple-500/20 text-purple-400",
+  };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">Users</h1>
-          <p className="text-sm text-slate-400 mt-1">Manage user accounts, roles, and API access</p>
+          <h1 className="text-2xl font-bold text-white">Users & API Keys</h1>
+          <p className="text-slate-400 text-sm mt-1">Manage client accounts, API keys, and usage limits</p>
         </div>
-        <button className="btn btn-primary"><Plus className="w-4 h-4" /> Add User</button>
-      </div>
-
-      {/* Filters */}
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-          <input
-            type="text"
-            placeholder="Search by email or name..."
-            className="input pl-10"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-        <select className="input w-40" value={filterRole} onChange={e => setFilterRole(e.target.value)}>
-          <option value="all">All Roles</option>
-          <option value="admin">Admin</option>
-          <option value="staff">Staff</option>
-          <option value="enterprise">Enterprise</option>
-          <option value="user">User</option>
-        </select>
+        <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors">
+          <Plus size={16} /> Create User
+        </button>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4">
         {[
-          { label: "Total Users", value: users.length, color: "#3b82f6" },
-          { label: "Active", value: users.filter(u => u.is_active).length, color: "#22c55e" },
-          { label: "Enterprise", value: users.filter(u => u.role === "enterprise").length, color: "#8b5cf6" },
-          { label: "Suspended", value: users.filter(u => !u.is_active).length, color: "#ef4444" },
-        ].map(s => (
-          <div key={s.label} className="glass p-4 text-center">
-            <div className="text-xs text-slate-500 mb-2">{s.label}</div>
-            <div className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</div>
+          { label: "Total Users", value: "1,247", icon: Users },
+          { label: "Active Keys", value: "2,891" },
+          { label: "Enterprise", value: "12" },
+          { label: "This Month", value: "+89 new" },
+        ].map((stat, i) => (
+          <div key={i} className="stat-card">
+            <p className="stat-label">{stat.label}</p>
+            <p className="stat-value">{stat.value}</p>
           </div>
         ))}
       </div>
 
-      {/* User table */}
-      <div className="table-container">
-        <table className="table">
-          <thead>
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+        <input
+          type="text"
+          placeholder="Search users or emails..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-blue-500"
+        />
+      </div>
+
+      {/* Users Table */}
+      <div className="bg-slate-800/40 rounded-xl border border-slate-700 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-800/60 border-b border-slate-700">
             <tr>
-              <th>User</th>
-              <th>Role</th>
-              <th>Rate Limit</th>
-              <th>Credits</th>
-              <th>Requests</th>
-              <th>Status</th>
-              <th>Actions</th>
+              <th className="text-left px-4 py-3 text-slate-400 font-medium">User</th>
+              <th className="text-left px-4 py-3 text-slate-400 font-medium">Tier</th>
+              <th className="text-left px-4 py-3 text-slate-400 font-medium">API Key</th>
+              <th className="text-left px-4 py-3 text-slate-400 font-medium">Usage</th>
+              <th className="text-left px-4 py-3 text-slate-400 font-medium">Status</th>
+              <th className="text-left px-4 py-3 text-slate-400 font-medium">Created</th>
+              <th className="px-4 py-3"></th>
             </tr>
           </thead>
-          <tbody>
-            {filtered.map(u => (
-              <tr key={u.id}>
-                <td>
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-xs font-bold text-white">
-                      {u.name[0]}
-                    </div>
-                    <div>
-                      <div className="text-sm font-medium text-white">{u.name}</div>
-                      <div className="text-[10px] text-slate-500">{u.email}</div>
-                    </div>
+          <tbody className="divide-y divide-slate-700/50">
+            {filtered.map((user) => (
+              <tr key={user.id} className="hover:bg-slate-700/20 transition-colors">
+                <td className="px-4 py-3">
+                  <div>
+                    <p className="font-medium text-white">{user.name}</p>
+                    <p className="text-slate-400 text-xs">{user.email}</p>
                   </div>
                 </td>
-                <td>{roleBadge(u.role)}</td>
-                <td className="font-mono text-white">{u.rate_limit}/min</td>
-                <td className="font-mono text-white">${u.credits.toFixed(2)}</td>
-                <td className="font-mono text-white">{(u.total_requests / 1000).toFixed(0)}K</td>
-                <td>
-                  {u.is_active
-                    ? <span className="badge badge-green"><CheckCircle className="w-3 h-3" />Active</span>
-                    : <span className="badge badge-red"><Ban className="w-3 h-3" />Suspended</span>}
+                <td className="px-4 py-3">
+                  <span className={`px-2 py-1 rounded-md text-xs font-medium ${tierColors[user.tier]}`}>
+                    {user.tier}
+                  </span>
                 </td>
-                <td>
-                  <div className="flex gap-2">
-                    <button className="btn btn-secondary text-xs py-1 px-2"><Key className="w-3 h-3" />API Key</button>
-                    <button className="btn btn-secondary text-xs py-1 px-2">Edit</button>
-                    <button className={`btn text-xs py-1 px-2 ${u.is_active ? "btn-danger" : "btn-secondary"}`}>
-                      {u.is_active ? <><Ban className="w-3 h-3" />Suspend</> : <><CheckCircle className="w-3 h-3" />Activate</>}
-                    </button>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-1">
+                    <code className="text-xs font-mono text-slate-300 bg-slate-700/50 px-2 py-0.5 rounded">
+                      {user.api_keys[0]?.slice(0, 20)}...
+                    </code>
+                    <button className="text-slate-400 hover:text-white p-1"><Copy size={12} /></button>
+                  </div>
+                </td>
+                <td className="px-4 py-3 min-w-48">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-blue-500 rounded-full"
+                        style={{ width: `${(user.used_tokens / user.limit_tokens) * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-slate-400 font-mono">
+                      {(user.used_tokens / 1_000_000).toFixed(1)}M
+                    </span>
+                  </div>
+                </td>
+                <td className="px-4 py-3">
+                  {user.is_active ? (
+                    <span className="flex items-center gap-1 text-emerald-400 text-xs"><CheckCircle size={12} /> Active</span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-red-400 text-xs"><XCircle size={12} /> Disabled</span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-slate-400 text-xs">{user.created}</td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-1">
+                    <button className="text-slate-400 hover:text-white p-1"><Edit2 size={14} /></button>
+                    <button className="text-slate-400 hover:text-red-400 p-1"><Trash2 size={14} /></button>
                   </div>
                 </td>
               </tr>
