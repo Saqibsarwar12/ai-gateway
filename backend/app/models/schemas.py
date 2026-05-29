@@ -1,147 +1,163 @@
-"""Pydantic schemas for API request/response models."""
+"""Pydantic schemas for all API request/response models."""
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 
 
-# ─── Provider Schemas ───────────────────────────────────
-class ProviderCreate(BaseModel):
+class ProviderBase(BaseModel):
     name: str
-    slug: str
-    base_url: str
-    api_key: str
+    provider_type: str = "openai"
+    base_url: str = "https://api.openai.com/v1"
+    api_key: Optional[str] = None
     enabled: bool = True
-    cost_per_1k_input: float = 0.0
-    cost_per_1k_output: float = 0.0
-    daily_limit: int = 0
-    priority: int = 1
-    tags: list[str] = []
-    headers: dict = {}
-    timeout_seconds: int = 60
-    retry_count: int = 3
+    priority: int = 100
+    max_rpm: int = 1000
+    max_tpm: int = 100000
+    requires_proxy: bool = False
+    proxy_url: Optional[str] = None
     models: list[str] = []
+    extra_config: dict = {}
+
+
+class ProviderCreate(ProviderBase):
+    id: Optional[str] = None
 
 
 class ProviderUpdate(BaseModel):
     name: Optional[str] = None
-    slug: Optional[str] = None
+    provider_type: Optional[str] = None
     base_url: Optional[str] = None
     api_key: Optional[str] = None
     enabled: Optional[bool] = None
-    cost_per_1k_input: Optional[float] = None
-    cost_per_1k_output: Optional[float] = None
-    daily_limit: Optional[int] = None
     priority: Optional[int] = None
-    tags: Optional[list[str]] = None
-    headers: Optional[dict] = None
-    timeout_seconds: Optional[int] = None
-    retry_count: Optional[int] = None
+    max_rpm: Optional[int] = None
+    max_tpm: Optional[int] = None
+    requires_proxy: Optional[bool] = None
+    proxy_url: Optional[str] = None
     models: Optional[list[str]] = None
-    status: Optional[str] = None
+    extra_config: Optional[dict] = None
 
 
-class ProviderResponse(BaseModel):
+class ProviderResponse(ProviderBase):
     id: str
-    name: str
-    slug: str
-    base_url: str
-    enabled: bool
-    status: str
-    latency_ms: int
-    cost_per_1k_input: float
-    cost_per_1k_output: float
-    daily_limit: int
-    used_today: int
-    priority: int
-    tags: list[str]
-    models: list[str]
-    created_at: datetime
+    current_rpm: int = 0
+    current_tpm: int = 0
+    avg_latency_ms: float = 0.0
+    success_rate: float = 100.0
+    is_healthy: bool = True
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
 
 
-# ─── Routing Schemas ─────────────────────────────────────
-class RoutingRuleCreate(BaseModel):
+class RoutingRuleBase(BaseModel):
+    model_config = {"protected_namespaces": ()}
+    
     name: str
-    strategy: str
-    provider_ids: list[str]
-    enabled: bool = True
-    conditions: dict = {}
+    strategy: str = "fallback"  # fallback | cost | latency | round_robin | weighted | priority
+    model_filter: Optional[str] = "*"
+    provider_order: list[str] = []
+    weights: dict = {}
+    is_active: bool = True
+    priority: int = 0
+    fallback_enabled: bool = True
+    max_retries: int = 2
+    timeout_ms: int = 60000
+
+
+class RoutingRuleCreate(RoutingRuleBase):
+    pass
 
 
 class RoutingRuleUpdate(BaseModel):
+    model_config = {"protected_namespaces": ()}
     name: Optional[str] = None
     strategy: Optional[str] = None
-    provider_ids: Optional[list[str]] = None
-    enabled: Optional[bool] = None
-    conditions: Optional[dict] = None
+    model_pattern: Optional[str] = None
+    provider_order: Optional[list[str]] = None
+    weights: Optional[dict] = None
+    is_active: Optional[bool] = None
     priority: Optional[int] = None
+    fallback_enabled: Optional[bool] = None
+    max_retries: Optional[int] = None
+    timeout_ms: Optional[int] = None
 
 
-class RoutingRuleResponse(BaseModel):
+class RoutingRuleResponse(RoutingRuleBase):
     id: str
-    name: str
-    strategy: str
-    provider_ids: list[str]
-    enabled: bool
-    conditions: dict
-    priority: int
-    created_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
 
 
-# ─── User Schemas ────────────────────────────────────────
-class UserCreate(BaseModel):
+class UserBase(BaseModel):
     name: str
     email: str
-    password: str
     role: str = "user"
+    credits: int = 100
+
+
+class UserCreate(UserBase):
+    password: str
 
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
+    password: Optional[str] = None
     role: Optional[str] = None
     credits: Optional[int] = None
-    rate_limit: Optional[int] = None
-    enabled: Optional[bool] = None
-    allowed_providers: Optional[list[str]] = None
-    allowed_models: Optional[list[str]] = None
+    is_active: Optional[bool] = None
 
 
-class UserResponse(BaseModel):
+class UserResponse(UserBase):
     id: str
-    name: str
-    email: str
-    role: str
-    api_key: str
-    credits: int
-    requests_today: int
-    rate_limit: int
-    enabled: bool
-    created_at: datetime
+    is_active: bool
+    api_key: Optional[str] = None
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
 
 
-# ─── Chat Completion Schemas ──────────────────────────────
+# ─── Chat Completion Schemas ───────────────────────────────────────────
 class Message(BaseModel):
     role: str
     content: str
+    name: Optional[str] = None
 
 
 class ChatCompletionRequest(BaseModel):
-    model: str
+    model: str = "gpt-3.5-turbo"
     messages: list[Message]
     temperature: Optional[float] = 0.7
-    max_tokens: Optional[int] = 4096
-    stream: Optional[bool] = False
-    top_p: Optional[float] = None
+    max_tokens: Optional[int] = 2048
+    top_p: Optional[float] = 1.0
     stop: Optional[list[str]] = None
+    stream: Optional[bool] = False
+    user: Optional[str] = None
+
+
+class UsageInfo(BaseModel):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+    index: Optional[int] = None
+
+
+class ChatCompletionChoice(BaseModel):
+    index: int
+    message: ChatMessage
+    finish_reason: str
 
 
 class ChatCompletionResponse(BaseModel):
@@ -149,5 +165,5 @@ class ChatCompletionResponse(BaseModel):
     object: str = "chat.completion"
     created: int
     model: str
-    choices: list
-    usage: dict
+    choices: list[ChatCompletionChoice]
+    usage: UsageInfo

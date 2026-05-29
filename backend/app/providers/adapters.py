@@ -76,3 +76,5 @@ class ProviderAdapter:
                 return {"ok": r.status_code == 200, "latency_ms": latency, "status_code": r.status_code}
         except Exception as e:
             return {"ok": False, "latency_ms": 0, "error": str(e)}
+
+OpenAIAdapter = ProviderAdapter  # Alias for compatibility

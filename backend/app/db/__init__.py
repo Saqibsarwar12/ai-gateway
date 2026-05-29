@@ -1,2 +1,2 @@
-from app.db.session import Base, get_db, get_redis, async_session_maker
-from app.db import models
+from app.db.models import Base, Provider, RoutingRule, User, Model, APIKey, RequestLog, UsageStats
+from app.db.session import async_session_maker, get_db

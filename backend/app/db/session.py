@@ -1,47 +1,25 @@
-"""Database session — PostgreSQL on Render, SQLite fallback for local dev."""
+"""Database session — SQLite on Free tier Render, PostgreSQL when available."""
 import os
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import declarative_base
 
-USE_SQLITE = os.environ.get("USE_SQLITE", "false").lower() == "true"
+Base = declarative_base()
 
-if USE_SQLITE:
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-    from sqlalchemy.orm import declarative_base
-    from sqlalchemy.pool import StaticPool
+USE_SQLITE = os.getenv("USE_SQLITE", "true").lower() == "true"
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///./ai_gateway.db",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    Base = declarative_base()
-    redis_client = None
-
-    async def get_db():
-        async with async_session_maker() as session:
-            yield session
-
-    async def get_redis():
-        return None
-
+if USE_SQLITE or not DATABASE_URL:
+    # SQLite for local dev / Free tier — no pip install needed
+    DB_PATH = os.getenv("DB_PATH", "/tmp/ai_gateway.db")
+    DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH}"
+    engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
 else:
-    import redis.asyncio as redis
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-    from sqlalchemy.orm import declarative_base
+    # PostgreSQL for production
+    engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True, pool_size=5)
 
-    engine = create_async_engine(
-        os.environ.get("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_gateway"),
-        echo=False,
-        pool_size=20,
-        max_overflow=30,
-    )
-    async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    Base = declarative_base()
-    redis_client = redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
+async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    async def get_db():
-        async with async_session_maker() as session:
-            yield session
 
-    async def get_redis():
-        return redis_client
+async def get_db() -> AsyncSession:
+    async with async_session_maker() as session:
+        yield session

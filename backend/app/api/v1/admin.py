@@ -1,18 +1,16 @@
-"""Admin API — manage providers, routing rules, users."""
+"""Admin API — manage providers, routing rules, users, analytics."""
 from fastapi import APIRouter, Depends, HTTPException, Header
-from sqlalchemy import select
-from app.db.session import async_session_maker, get_redis
-from app.db.models import Provider, RoutingRule, User, Model, APIKey, RequestLog
+from sqlalchemy import select, func
+from app.db.session import async_session_maker
+from app.db.models import Provider, RoutingRule, User, Model, RequestLog, UsageStats
 from app.models.schemas import (
     ProviderCreate, ProviderUpdate, ProviderResponse,
     RoutingRuleCreate, RoutingRuleUpdate, RoutingRuleResponse,
     UserCreate, UserUpdate, UserResponse,
 )
-from app.core.auth import hash_password, verify_password, create_access_token, generate_api_key
-from app.providers.adapters import ProviderAdapter
-from app.core.rate_limit import check_rate_limit
+from app.core.auth import hash_password, verify_password, create_access_token, create_api_key
 import shortuuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 router = APIRouter()
 
@@ -22,7 +20,8 @@ def get_current_user(authorization: str = Header(None)):
         raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
     token = authorization.replace("Bearer ", "")
     from app.core.auth import decode_token
-    data = decode_token(token)
+    from app.core.config import settings
+    data = decode_token(token, settings.SECRET_KEY)
     if not data:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     return data
@@ -36,12 +35,43 @@ async def login(email: str, password: str):
         user = result.scalar_one_or_none()
         if not user or not verify_password(password, user.hashed_password):
             raise HTTPException(status_code=401, detail="Invalid credentials")
-        token = create_access_token({"sub": user.id, "email": user.email, "role": user.role})
-        return {"access_token": token, "token_type": "bearer", "user": {"id": user.id, "email": user.email, "role": user.role}}
+        from app.core.config import settings
+        token = create_access_token(
+            {"sub": user.id, "email": user.email, "role": user.role},
+            settings.SECRET_KEY,
+        )
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "user": {"id": user.id, "email": user.email, "role": user.role},
+        }
+
+
+@router.post("/auth/register")
+async def register(name: str, email: str, password: str):
+    async with async_session_maker() as session:
+        existing = await session.execute(select(User).where(User.email == email))
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Email already registered")
+
+        api_key = create_api_key()
+        u = User(
+            id=shortuuid.uuid(),
+            name=name,
+            email=email,
+            hashed_password=hash_password(password),
+            role="user",
+            api_key=api_key,
+            credits=100,
+            is_active=True,
+        )
+        session.add(u)
+        await session.commit()
+        return {"user": {"id": u.id, "email": u.email, "role": u.role}, "api_key": api_key}
 
 
 # ─── Providers ────────────────────────────────────────────
-@router.get("/providers")
+@router.get("/providers", response_model=list[ProviderResponse])
 async def list_providers():
     async with async_session_maker() as session:
         result = await session.execute(select(Provider).order_by(Provider.priority))
@@ -49,46 +79,40 @@ async def list_providers():
         return [ProviderResponse.model_validate(p) for p in providers]
 
 
-@router.post("/providers")
-async def create_provider(provider: ProviderCreate):
+@router.post("/providers", response_model=ProviderResponse)
+async def create_provider(data: ProviderCreate):
     async with async_session_maker() as session:
-        existing = await session.execute(select(Provider).where(Provider.slug == provider.slug))
-        if existing.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="Provider with this slug already exists")
-
         p = Provider(
-            id=shortuuid.uuid(),
-            name=provider.name,
-            slug=provider.slug,
-            base_url=provider.base_url,
-            api_key=provider.api_key,
-            enabled=provider.enabled,
-            cost_per_1k_input=provider.cost_per_1k_input,
-            cost_per_1k_output=provider.cost_per_1k_output,
-            daily_limit=provider.daily_limit,
-            priority=provider.priority,
-            tags=provider.tags,
-            headers=provider.headers,
-            timeout_seconds=provider.timeout_seconds,
-            retry_count=provider.retry_count,
-            models=provider.models,
+            id=data.id or shortuuid.uuid(),
+            name=data.name,
+            provider_type=data.provider_type,
+            base_url=data.base_url,
+            api_key=data.api_key,
+            enabled=data.enabled,
+            priority=data.priority,
+            max_rpm=data.max_rpm,
+            max_tpm=data.max_tpm,
+            requires_proxy=data.requires_proxy,
+            proxy_url=data.proxy_url,
+            models=data.models,
+            extra_config=data.extra_config or {},
         )
         session.add(p)
         await session.commit()
         return ProviderResponse.model_validate(p)
 
 
-@router.put("/providers/{provider_id}")
-async def update_provider(provider_id: str, updates: ProviderUpdate):
+@router.put("/providers/{provider_id}", response_model=ProviderResponse)
+async def update_provider(provider_id: str, data: ProviderUpdate):
     async with async_session_maker() as session:
         result = await session.execute(select(Provider).where(Provider.id == provider_id))
         p = result.scalar_one_or_none()
         if not p:
             raise HTTPException(status_code=404, detail="Provider not found")
-
-        update_data = updates.model_dump(exclude_unset=True)
+        update_data = data.model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(p, key, value)
+        p.updated_at = datetime.utcnow()
         await session.commit()
         return ProviderResponse.model_validate(p)
 
@@ -113,22 +137,14 @@ async def test_provider(provider_id: str):
         if not p:
             raise HTTPException(status_code=404, detail="Provider not found")
 
-        adapter = ProviderAdapter(p.base_url, p.api_key, p.timeout_seconds or 60, p.headers or {})
-        health = await adapter.health_check()
-        models = await adapter.list_models()
-
-        # Update latency and status
-        p.latency_ms = health.get("latency_ms", 0)
-        p.status = "online" if health.get("ok") else "offline"
-        if models:
-            p.models = models
-        await session.commit()
-
-        return {"ok": health.get("ok"), "latency_ms": health.get("latency_ms", 0), "models": models, "status_code": health.get("status_code")}
+        from app.providers.adapters import OpenAIAdapter
+        adapter = OpenAIAdapter(name=p.id, base_url=p.base_url, api_key=p.api_key or "", models=p.models or [])
+        ok, latency, models = await adapter.health_check()
+        return {"ok": ok, "latency_ms": latency, "models": models}
 
 
 # ─── Routing Rules ───────────────────────────────────────
-@router.get("/routing")
+@router.get("/routing", response_model=list[RoutingRuleResponse])
 async def list_routing_rules():
     async with async_session_maker() as session:
         result = await session.execute(select(RoutingRule).order_by(RoutingRule.priority.desc()))
@@ -136,30 +152,35 @@ async def list_routing_rules():
         return [RoutingRuleResponse.model_validate(r) for r in rules]
 
 
-@router.post("/routing")
-async def create_routing_rule(rule: RoutingRuleCreate):
+@router.post("/routing", response_model=RoutingRuleResponse)
+async def create_routing_rule(data: RoutingRuleCreate):
     async with async_session_maker() as session:
         r = RoutingRule(
             id=shortuuid.uuid(),
-            name=rule.name,
-            strategy=rule.strategy,
-            provider_ids=rule.provider_ids,
-            enabled=rule.enabled,
-            conditions=rule.conditions,
+            name=data.name,
+            strategy=data.strategy,
+            model_pattern=data.model_pattern,
+            provider_order=data.provider_order,
+            weights=data.weights,
+            is_active=data.is_active,
+            priority=data.priority,
+            fallback_enabled=data.fallback_enabled,
+            max_retries=data.max_retries,
+            timeout_ms=data.timeout_ms,
         )
         session.add(r)
         await session.commit()
         return RoutingRuleResponse.model_validate(r)
 
 
-@router.put("/routing/{rule_id}")
-async def update_routing_rule(rule_id: str, updates: RoutingRuleUpdate):
+@router.put("/routing/{rule_id}", response_model=RoutingRuleResponse)
+async def update_routing_rule(rule_id: str, data: RoutingRuleUpdate):
     async with async_session_maker() as session:
         result = await session.execute(select(RoutingRule).where(RoutingRule.id == rule_id))
         r = result.scalar_one_or_none()
         if not r:
             raise HTTPException(status_code=404, detail="Rule not found")
-        update_data = updates.model_dump(exclude_unset=True)
+        update_data = data.model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(r, key, value)
         await session.commit()
@@ -179,7 +200,7 @@ async def delete_routing_rule(rule_id: str):
 
 
 # ─── Users ───────────────────────────────────────────────
-@router.get("/users")
+@router.get("/users", response_model=list[UserResponse])
 async def list_users():
     async with async_session_maker() as session:
         result = await session.execute(select(User).order_by(User.created_at.desc()))
@@ -187,35 +208,38 @@ async def list_users():
         return [UserResponse.model_validate(u) for u in users]
 
 
-@router.post("/users")
-async def create_user(user: UserCreate):
+@router.post("/users", response_model=UserResponse)
+async def create_user(data: UserCreate):
     async with async_session_maker() as session:
-        existing = await session.execute(select(User).where(User.email == user.email))
+        existing = await session.execute(select(User).where(User.email == data.email))
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Email already registered")
-
-        api_key_prefix, _ = generate_api_key()
+        api_key = create_api_key()
         u = User(
             id=shortuuid.uuid(),
-            name=user.name,
-            email=user.email,
-            hashed_password=hash_password(user.password),
-            role=user.role,
-            api_key=api_key_prefix,
- )
+            name=data.name,
+            email=data.email,
+            hashed_password=hash_password(data.password),
+            role=data.role,
+            api_key=api_key,
+            credits=data.credits,
+            is_active=True,
+        )
         session.add(u)
         await session.commit()
         return UserResponse.model_validate(u)
 
 
-@router.put("/users/{user_id}")
-async def update_user(user_id: str, updates: UserUpdate):
+@router.put("/users/{user_id}", response_model=UserResponse)
+async def update_user(user_id: str, data: UserUpdate):
     async with async_session_maker() as session:
         result = await session.execute(select(User).where(User.id == user_id))
         u = result.scalar_one_or_none()
         if not u:
             raise HTTPException(status_code=404, detail="User not found")
-        update_data = updates.model_dump(exclude_unset=True)
+        update_data = data.model_dump(exclude_unset=True)
+        if "password" in update_data:
+            update_data["hashed_password"] = hash_password(update_data.pop("password"))
         for key, value in update_data.items():
             setattr(u, key, value)
         await session.commit()
@@ -236,46 +260,116 @@ async def delete_user(user_id: str):
 
 # ─── Analytics ───────────────────────────────────────────
 @router.get("/analytics")
-async def get_analytics():
+async def get_analytics(days: int = 7):
     async with async_session_maker() as session:
-        result = await session.execute(select(RequestLog))
-        logs = result.scalars().all()
+        since = datetime.utcnow() - timedelta(days=days)
 
-        total_requests = len(logs)
-        total_tokens = sum(l.total_tokens or 0 for l in logs)
-        total_cost = sum(l.cost or 0 for l in logs)
-        avg_latency = sum(l.latency_ms or 0 for l in logs) / max(total_requests, 1)
-        errors = sum(1 for l in logs if l.status_code >= 400)
-        success_rate = ((total_requests - errors) / max(total_requests, 1)) * 100
+        count_result = await session.execute(
+            select(func.count(RequestLog.id)).where(RequestLog.created_at >= since)
+        )
+        total_requests = count_result.scalar() or 0
+
+        if total_requests == 0:
+            return {
+                "total_requests": 0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_cost_usd": 0.0,
+                "avg_latency_ms": 0.0,
+                "success_rate": 100.0,
+                "error_count": 0,
+            }
+
+        # Token sums
+        token_result = await session.execute(
+            select(
+                func.sum(RequestLog.input_tokens),
+                func.sum(RequestLog.output_tokens),
+                func.sum(RequestLog.cost_usd),
+            ).where(RequestLog.created_at >= since)
+        )
+        row = token_result.one()
+        total_input = row[0] or 0
+        total_output = row[1] or 0
+        total_cost = row[2] or 0.0
+
+        # Latency avg
+        lat_result = await session.execute(
+            select(func.avg(RequestLog.latency_ms)).where(RequestLog.created_at >= since)
+        )
+        avg_latency = lat_result.scalar() or 0.0
+
+        # Error count
+        err_result = await session.execute(
+            select(func.count(RequestLog.id)).where(
+                RequestLog.created_at >= since,
+                RequestLog.status_code >= 400,
+            )
+        )
+        error_count = err_result.scalar() or 0
+
+        success_rate = ((total_requests - error_count) / max(total_requests, 1)) * 100
 
         return {
             "total_requests": total_requests,
-            "total_tokens": total_tokens,
-            "total_cost": round(total_cost, 4),
-            "avg_latency_ms": round(avg_latency, 1),
+            "total_input_tokens": total_input,
+            "total_output_tokens": total_output,
+            "total_cost_usd": round(total_cost, 6),
+            "avg_latency_ms": round(float(avg_latency), 1),
             "success_rate": round(success_rate, 2),
-            "errors": errors,
+            "error_count": error_count,
         }
 
 
 # ─── Logs ───────────────────────────────────────────────
 @router.get("/logs")
-async def get_logs(limit: int = 100):
+async def get_logs(limit: int = 100, offset: int = 0):
     async with async_session_maker() as session:
-        result = await session.execute(select(RequestLog).order_by(RequestLog.created_at.desc()).limit(limit))
+        result = await session.execute(
+            select(RequestLog)
+            .order_by(RequestLog.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
         logs = result.scalars().all()
         return [
             {
                 "id": l.id,
+                "provider": l.provider,
                 "model": l.model,
+                "input_tokens": l.input_tokens,
+                "output_tokens": l.output_tokens,
                 "latency_ms": l.latency_ms,
                 "status_code": l.status_code,
                 "error": l.error,
-                "prompt_tokens": l.prompt_tokens,
-                "completion_tokens": l.completion_tokens,
-                "total_tokens": l.total_tokens,
-                "cached": l.cached,
+                "cost_usd": l.cost_usd,
                 "created_at": l.created_at.isoformat() if l.created_at else None,
             }
             for l in logs
         ]
+
+
+# ─── Models ───────────────────────────────────────────────
+@router.get("/models")
+async def list_models():
+    async with async_session_maker() as session:
+        result = await session.execute(select(Model).where(Model.enabled == True))
+        models = result.scalars().all()
+        return [{"id": m.id, "name": m.name, "provider_id": m.provider_id, "mode": m.mode} for m in models]
+
+
+@router.post("/models")
+async def create_model(data: dict):
+    async with async_session_maker() as session:
+        m = Model(
+            id=data.get("id", shortuuid.uuid()),
+            name=data.get("name", ""),
+            provider_id=data.get("provider_id"),
+            model_id=data.get("model_id", ""),
+            mode=data.get("mode", "chat"),
+            context_window=data.get("context_window", 8192),
+            enabled=True,
+        )
+        session.add(m)
+        await session.commit()
+        return {"id": m.id, "name": m.name}

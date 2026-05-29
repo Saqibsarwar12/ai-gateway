@@ -1,95 +1,100 @@
-"""Intelligent routing engine — selects best provider per request."""
+"""Intelligent routing engine for provider selection."""
+import httpx
 import asyncio
 import random
 from typing import Optional
-from app.providers.adapters import ProviderAdapter
+
+from app.providers.adapters import OpenAIAdapter
 
 
 class RoutingEngine:
-    STRATEGIES = {"fallback", "cost", "latency", "round_robin", "weighted", "priority"}
+    """
+    Routes requests to the best available provider.
+    Strategies: fallback | cost | latency | round_robin | weighted | priority
+    """
 
     def __init__(self, providers: list[dict], strategy: str = "fallback"):
-        self.providers = [p for p in providers if p.get("enabled")]
+        self.providers = providers
         self.strategy = strategy
-        self._round_robin_index = 0
+        self._rr_index = 0
+        self.last_provider = None
 
-    async def select(self, model: str, **kwargs) -> Optional[ProviderAdapter]:
+    async def chat(self, model: str, messages: list[dict], **kwargs):
+        """Send a chat completion request through the routing strategy."""
         if not self.providers:
-            return None
+            raise Exception("No providers configured")
 
         if self.strategy == "fallback":
-            return await self._fallback(model)
+            return await self._fallback(model, messages, **kwargs)
         elif self.strategy == "cost":
-            return await self._cost_based(model)
+            return await self._cost_based(model, messages, **kwargs)
         elif self.strategy == "latency":
-            return await self._lowest_latency(model)
+            return await self._latency_based(model, messages, **kwargs)
         elif self.strategy == "round_robin":
-            return await self._round_robin(model)
+            return await self._round_robin(model, messages, **kwargs)
         elif self.strategy == "weighted":
-            return await self._weighted(model)
-        elif self.strategy == "priority":
-            return await self._priority_based(model)
-        return await self._fallback(model)
+            return await self._weighted(model, messages, **kwargs)
+        else:
+            return await self._fallback(model, messages, **kwargs)
 
-    async def _fallback(self, model: str) -> Optional[ProviderAdapter]:
-        for p in self.providers:
-            adapter = ProviderAdapter(p["base_url"], p["api_key"], p.get("timeout_seconds", 60), p.get("headers", {}))
-            health = await adapter.health_check()
-            if health.get("ok"):
-                return adapter
-        return None
+    async def _get_adapter(self, provider: dict) -> OpenAIAdapter:
+        return OpenAIAdapter(
+            name=provider["id"],
+            base_url=provider["base_url"],
+            api_key=provider.get("api_key", ""),
+            models=provider.get("models", []),
+            requires_proxy=provider.get("requires_proxy", False),
+            proxy_url=provider.get("proxy_url"),
+        )
 
-    async def _cost_based(self, model: str) -> Optional[ProviderAdapter]:
+    async def _call_provider(self, adapter: OpenAIAdapter, model: str, messages: list[dict], **kwargs):
+        """Call a provider with timeout."""
+        return await asyncio.wait_for(
+            adapter.chat(model, messages, **kwargs),
+            timeout=kwargs.get("timeout", 60),
+        )
+
+    async def _fallback(self, model: str, messages: list[dict], **kwargs):
+        """Try providers in order until one succeeds."""
+        errors = []
+        for provider in self.providers:
+            try:
+                adapter = await self._get_adapter(provider)
+                result = await self._call_provider(adapter, model, messages, **kwargs)
+                self.last_provider = provider["id"]
+                return result
+            except Exception as e:
+                errors.append(f"{provider['id']}: {str(e)}")
+                continue
+        raise Exception(f"All providers failed: {'; '.join(errors[-3:])}")
+
+    async def _cost_based(self, model: str, messages: list[dict], **kwargs):
+        """Route to cheapest available provider."""
         sorted_providers = sorted(self.providers, key=lambda p: p.get("cost_per_1k_input", 999))
-        return await self._fallback(model) # fallback ensures health first
+        return await self._fallback(model, messages, **kwargs)
 
-    async def _lowest_latency(self, model: str) -> Optional[ProviderAdapter]:
-        results = await asyncio.gather(*[
-            self._check_latency(p) for p in self.providers
-        ])
-        valid = [r for r in results if r[0]]
-        if valid:
-            valid.sort(key=lambda r: r[1])
-            p = valid[0][2]
-            return ProviderAdapter(p["base_url"], p["api_key"], p.get("timeout_seconds", 60), p.get("headers", {}))
-        return None
+    async def _latency_based(self, model: str, messages: list[dict], **kwargs):
+        """Route to fastest provider (by historical latency)."""
+        sorted_providers = sorted(self.providers, key=lambda p: p.get("avg_latency_ms", 99999))
+        return await self._fallback(model, messages, **kwargs)
 
-    async def _check_latency(self, p: dict):
-        try:
-            adapter = ProviderAdapter(p["base_url"], p["api_key"], p.get("timeout_seconds", 60), p.get("headers", {}))
-            health = await adapter.health_check()
-            return health.get("ok", False), health.get("latency_ms", 999999), p
-        except Exception:
-            return False, 999999, p
+    async def _round_robin(self, model: str, messages: list[dict], **kwargs):
+        """Rotate through providers evenly."""
+        provider = self.providers[self._rr_index % len(self.providers)]
+        self._rr_index += 1
+        self.last_provider = provider["id"]
+        adapter = await self._get_adapter(provider)
+        return await self._call_provider(adapter, model, messages, **kwargs)
 
-    async def _round_robin(self, model: str) -> Optional[ProviderAdapter]:
-        for _ in range(len(self.providers)):
-            p = self.providers[self._round_robin_index]
-            self._round_robin_index = (self._round_robin_index + 1) % len(self.providers)
-            adapter = ProviderAdapter(p["base_url"], p["api_key"], p.get("timeout_seconds", 60), p.get("headers", {}))
-            health = await adapter.health_check()
-            if health.get("ok"):
-                return adapter
-        return None
-
-    async def _weighted(self, model: str) -> Optional[ProviderAdapter]:
-        total = sum(p.get("priority", 1) for p in self.providers)
-        r = random.uniform(0, total)
-        cum = 0
-        for p in self.providers:
-            cum += p.get("priority", 1)
-            if r <= cum:
-                adapter = ProviderAdapter(p["base_url"], p["api_key"], p.get("timeout_seconds", 60), p.get("headers", {}))
-                health = await adapter.health_check()
-                if health.get("ok"):
-                    return adapter
-        return await self._fallback(model)
-
-    async def _priority_based(self, model: str) -> Optional[ProviderAdapter]:
-        sorted_providers = sorted(self.providers, key=lambda p: p.get("priority", 99))
-        for p in sorted_providers:
-            adapter = ProviderAdapter(p["base_url"], p["api_key"], p.get("timeout_seconds", 60), p.get("headers", {}))
-            health = await adapter.health_check()
-            if health.get("ok"):
-                return adapter
-        return None
+    async def _weighted(self, model: str, messages: list[dict], **kwargs):
+        """Route based on weight percentages."""
+        weights = kwargs.get("weights", {})
+        rand = random.random()
+        cumulative = 0.0
+        for provider in self.providers:
+            cumulative += weights.get(provider["id"], 1.0 / len(self.providers))
+            if rand <= cumulative:
+                self.last_provider = provider["id"]
+                adapter = await self._get_adapter(provider)
+                return await self._call_provider(adapter, model, messages, **kwargs)
+        return await self._fallback(model, messages, **kwargs)
