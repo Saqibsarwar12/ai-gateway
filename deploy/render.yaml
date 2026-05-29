@@ -1,0 +1,45 @@
+# Render.com Blueprint — AI Gateway Platform
+# Connect your GitHub repo at https://dashboard.render.com/blueprint
+
+# ─── API Server ──────────────────────────────────────────
+api:
+  type: web
+  region: oregon
+  plan: starter
+  runtime: python
+  buildCommand: pip install -r requirements.txt
+  startCommand: bash start.sh
+  healthCheckPath: /health
+  envVars:
+    - key: APP_NAME
+      value: AI Gateway
+    - key: DEBUG
+      value: "false"
+    - key: SECRET_KEY
+      generateValue: true
+    - key: DATABASE_URL
+      fromDatabase:
+        name: ai-gateway-db
+        property: connectionString
+    - key: REDIS_URL
+      fromService:
+        type: redis
+        name: ai-gateway-redis
+        envVarName: REDIS_URL
+ - key: ADMIN_EMAIL
+      value: admin@example.com
+    - key: ADMIN_PASSWORD
+      generateValue: true
+
+# ─── PostgreSQL Database ─────────────────────────────────
+ai-gateway-db:
+  type: psql
+  plan: starter
+  databaseName: ai_gateway
+  ipAllowList: []
+
+# ─── Redis Cache ──────────────────────────────────────────
+ai-gateway-redis:
+  type: redis
+  plan: starter
+  maxmemoryPolicy: allkeys-lru
