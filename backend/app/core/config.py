@@ -1,37 +1,18 @@
-"""Core configuration — env vars, settings."""
-from pydantic_settings import BaseSettings
-from pydantic import Field
+"""App config from environment variables."""
 import os
 
 
-class Settings(BaseSettings):
-    APP_NAME: str = "AI Gateway"
-    DEBUG: bool = False
-    SECRET_KEY: str = Field(default="change-me-in-production")
-    VERSION: str = "1.0.0"
-
-    # Database
-    DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://postgres:postgres@localhost:5432/ai_gateway"
-    )
-
-    # Redis
-    REDIS_URL: str = Field(default="redis://localhost:6379/0")
-
-    # CORS
-    CORS_ORIGINS: list[str] = ["*"]
-
-    # Admin
-    ADMIN_EMAIL: str = "admin@example.com"
-    ADMIN_PASSWORD: str = "admin123"  # Change in production!
-
-    # Rate limits
-    DEFAULT_RATE_LIMIT: int = 100
-    DEFAULT_RATE_WINDOW: int = 60  # seconds
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+class Settings:
+    VERSION = "1.0.0"
+    APP_NAME = "AI Gateway"
+    DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@example.com")
+    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "changeme")
+    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
+    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./ai_gateway.db")
+    USE_SQLITE = os.getenv("USE_SQLITE", "false").lower() == "true"
+    ALGORITHM = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
 
 settings = Settings()
