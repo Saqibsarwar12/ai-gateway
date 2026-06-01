@@ -29,9 +29,9 @@ def hash_password(password: str) -> str:
 def verify_password(plain: str, hashed: str) -> bool:
     """Verify password against PBKDF2 hash."""
     try:
-        salt, _ = hashed.split("$")
-        check = hash_password(plain)
-        return secrets.compare_digest(check, hashed)
+        salt, stored_hash = hashed.split("$")
+        check = hashlib.pbkdf2_hmac("sha256", plain.encode(), salt.encode(), 100000)
+        return secrets.compare_digest(check.hex(), stored_hash)
     except Exception:
         return False
 

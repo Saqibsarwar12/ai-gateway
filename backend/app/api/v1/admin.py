@@ -38,7 +38,6 @@ async def login(email: str, password: str):
         from app.core.config import settings
         token = create_access_token(
             {"sub": user.id, "email": user.email, "role": user.role},
-            settings.SECRET_KEY,
         )
         return {
             "access_token": token,
@@ -138,9 +137,9 @@ async def test_provider(provider_id: str):
             raise HTTPException(status_code=404, detail="Provider not found")
 
         from app.providers.adapters import OpenAIAdapter
-        adapter = OpenAIAdapter(name=p.id, base_url=p.base_url, api_key=p.api_key or "", models=p.models or [])
-        ok, latency, models = await adapter.health_check()
-        return {"ok": ok, "latency_ms": latency, "models": models}
+        adapter = OpenAIAdapter(name=p.id, base_url=p.base_url, api_key=p.api_key or "")
+        health = await adapter.health_check()
+        return health
 
 
 # ─── Routing Rules ───────────────────────────────────────
@@ -160,7 +159,7 @@ async def create_routing_rule(data: RoutingRuleCreate):
             name=data.name,
             strategy=data.strategy,
             model_pattern=data.model_pattern,
-            provider_order=data.provider_order,
+            provider_order=data.provider_ids,
             weights=data.weights,
             is_active=data.is_active,
             priority=data.priority,

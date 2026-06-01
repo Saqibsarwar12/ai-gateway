@@ -17,7 +17,8 @@ from app.api.v1 import openai, admin
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: create tables
-    from app.db.session import engine, Base
+    from app.db.models import Base
+    from app.db.session import engine
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

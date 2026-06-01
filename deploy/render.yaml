@@ -7,8 +7,8 @@ api:
   region: oregon
   plan: starter
   runtime: python
-  buildCommand: pip install -r requirements.txt
-  startCommand: bash start.sh
+  buildCommand: pip install --only-binary=:all: -r backend/requirements.txt || pip install -r backend/requirements.txt
+  startCommand: cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
   healthCheckPath: /health
   envVars:
     - key: APP_NAME
@@ -17,29 +17,26 @@ api:
       value: "false"
     - key: SECRET_KEY
       generateValue: true
-    - key: DATABASE_URL
-      fromDatabase:
-        name: ai-gateway-db
-        property: connectionString
-    - key: REDIS_URL
-      fromService:
-        type: redis
-        name: ai-gateway-redis
-        envVarName: REDIS_URL
- - key: ADMIN_EMAIL
+    - key: ADMIN_EMAIL
       value: admin@example.com
     - key: ADMIN_PASSWORD
       generateValue: true
+    - key: DATABASE_URL
+      value: sqlite+aiosqlite:///./ai_gateway.db
+    - key: USE_SQLITE
+      value: "true"
+    - key: PORT
+      value: "8000"
 
-# ─── PostgreSQL Database ─────────────────────────────────
-ai-gateway-db:
-  type: psql
-  plan: starter
-  databaseName: ai_gateway
-  ipAllowList: []
+# ─── PostgreSQL Database (optional — set DATABASE_URL to enable) ──
+# ai-gateway-db:
+#   type: psql
+#   plan: starter
+#   databaseName: ai_gateway
+#   ipAllowList: []
 
-# ─── Redis Cache ──────────────────────────────────────────
-ai-gateway-redis:
-  type: redis
-  plan: starter
-  maxmemoryPolicy: allkeys-lru
+# ─── Redis Cache (optional — set REDIS_URL to enable) ──
+# ai-gateway-redis:
+#   type: redis
+#   plan: starter
+#   maxmemoryPolicy: allkeys-lru

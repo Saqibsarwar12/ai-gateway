@@ -1,6 +1,11 @@
-"""Pydantic schemas — Pydantic v1 syntax."""
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+"""Pydantic schemas for AI Gateway API."""
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Optional, Any, List, Dict
+from datetime import datetime
+
+
+# Make all responses ORM-friendly
+RESPONSE_CONFIG = ConfigDict(from_attributes=True)
 
 
 class ChatMessage(BaseModel):
@@ -53,13 +58,20 @@ class ChatCompletionResponse(BaseModel):
 
 # ── Provider ────────────────────────────────────────────────
 class ProviderCreate(BaseModel):
+    id: Optional[str] = None
     name: str
     provider_type: str
     base_url: str
     api_key: Optional[str] = ""
     models: List[str] = []
+    enabled: bool = True
     is_active: bool = True
     priority: int = 100
+    max_rpm: int = 1000
+    max_tpm: int = 100000
+    requires_proxy: bool = False
+    proxy_url: Optional[str] = None
+    extra_config: Dict[str, Any] = {}
     extra_data: Dict[str, Any] = {}
 
     class Config:
@@ -81,28 +93,32 @@ class ProviderUpdate(BaseModel):
 
 
 class ProviderResponse(BaseModel):
-    id: int
+    id: str
     name: str
     provider_type: str
     base_url: str
-    models: List[str]
-    is_active: bool
-    priority: int
-    extra_data: Dict[str, Any]
-    avg_latency_ms: float
-    success_rate: float
+    api_key: Optional[str] = None
+    models: List[str] = []
+    is_active: bool = True
+    priority: int = 100
+    extra_data: Optional[Dict[str, Any]] = None
 
-    class Config:
-        from_attributes = True
+    model_config = RESPONSE_CONFIG
 
 
 # ── Routing Rule ─────────────────────────────────────────────
 class RoutingRuleCreate(BaseModel):
     name: str
-    strategy: str  # "cheapest" | "priority" | "latency" | "fallback"
-    provider_ids: List[int]
+    strategy: str
+    provider_ids: List[str]
     model_pattern: str = "*"
     is_active: bool = True
+    priority: Optional[int] = None
+    weights: Optional[Dict[str, Any]] = None
+    fallback_enabled: bool = True
+    max_retries: int = 2
+    timeout_ms: int = 60000
+    extra_data: Optional[Dict[str, Any]] = None
 
     class Config:
         extra = "allow"
@@ -111,7 +127,7 @@ class RoutingRuleCreate(BaseModel):
 class RoutingRuleUpdate(BaseModel):
     name: Optional[str] = None
     strategy: Optional[str] = None
-    provider_ids: Optional[List[int]] = None
+    provider_ids: Optional[List[str]] = None
     model_pattern: Optional[str] = None
     is_active: Optional[bool] = None
 
@@ -120,43 +136,48 @@ class RoutingRuleUpdate(BaseModel):
 
 
 class RoutingRuleResponse(BaseModel):
-    id: int
+    model_config = RESPONSE_CONFIG
+    id: str
     name: str
     strategy: str
-    provider_ids: List[int]
+    provider_ids: List[str] = Field(alias="provider_order")
     model_pattern: str
     is_active: bool
-
-    class Config:
-        from_attributes = True
 
 
 # ── User / API Key ───────────────────────────────────────────
 class UserCreate(BaseModel):
+    name: str
     email: str
     password: str
+    role: Optional[str] = "user"
+    credits: int = 100
+    extra_metadata: Optional[Dict[str, Any]] = {}
 
 
 class UserResponse(BaseModel):
-    id: int
+    id: str
+    name: str
     email: str
-    is_admin: bool
-    created_at: Optional[str] = None
+    role: str
+    credits: int
+    is_active: bool
+    api_key: Optional[str] = None
+    extra_metadata: Optional[Dict[str, Any]] = None
+    created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = RESPONSE_CONFIG
 
 
 class APIKeyResponse(BaseModel):
-    id: int
-    user_id: int
+    id: str
+    user_id: str
     key: str
     name: str
     is_active: bool
     created_at: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = RESPONSE_CONFIG
 
 
 class LoginRequest(BaseModel):
