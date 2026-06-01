@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: ai-gateway
+    runtime: docker
+    plan: starter
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: APP_NAME
+        value: AI Gateway
+      - key: DEBUG
+        value: "false"
+      - key: USE_SQLITE
+        value: "true"
+      - key: ADMIN_EMAIL
+        value: admin@example.com
+      - key: ADMIN_PASSWORD
+        value: changeme
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PORT
+        value: "8000"
+      - key: DATABASE_URL
+        value: sqlite+aiosqlite:///./ai_gateway.db

@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONUNBUFFERED=1
 
-# Install build deps for any wheel that needs compilation
+# Install build deps as fallback for any wheel that needs compilation
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libffi-dev \
@@ -15,25 +15,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip first
+# Upgrade pip and core build tools
 RUN pip install --no-cache-dir --upgrade pip==24.3.1 setuptools==75.6.0 wheel==0.45.1
 
-# Install deps with binary-only fallback for pydantic-core
-COPY backend/requirements.txt /app/backend/requirements.txt
-WORKDIR /app/backend
-RUN pip install --no-cache-dir \
-    --only-binary=:all: \
-    -r requirements.txt || \
-    pip install --no-cache-dir -r requirements.txt
+# Install Python deps with binary-only preference
+# pydantic-core 2.27.1 ships prebuilt manylinux wheels for cp311, so this should succeed
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir --only-binary=:all: -r /app/requirements.txt || \
+    pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy app
-WORKDIR /app
-COPY backend/ ./backend/
+# Copy app source
+COPY backend/ /app/backend/
 
 WORKDIR /app/backend
 
-ENV USE_SQLITE=true \
-    PYTHONUNBUFFERED=1
+ENV USE_SQLITE=true
 
 EXPOSE 8000
 
