@@ -44,9 +44,56 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
+def decode_token(token: str, secret: Optional[str] = None) -> Optional[dict]:
+    """Decode a JWT and return the payload, or None on failure."""
+    try:
+        return jwt.decode(token, secret or settings.SECRET_KEY, algorithms=[ALGORITHM])
+    except (JWTError, Exception):
+        return None
+
+
 def create_api_key() -> str:
     """Create a random API key."""
     return f"sk-{secrets.token_urlsafe(32)}"
+
+
+# ─── FastAPI dependencies for protected routes ─────────────────────────
+from fastapi import Header  # noqa: E402
+from sqlalchemy.ext.asyncio import async_sessionmaker  # noqa: E402
+
+
+async def _resolve_user(authorization: str = Header(None)) -> Optional[dict]:
+    """Return decoded JWT payload or None. Pure header check, no DB."""
+    if not authorization:
+        return None
+    if authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    else:
+        token = authorization.strip()
+    if not token:
+        return None
+    return decode_token(token)
+
+
+async def require_user(authorization: str = Header(None)) -> dict:
+    """Dependency: require any valid JWT. Raises 401 otherwise."""
+    payload = await _resolve_user(authorization)
+    if not payload or "sub" not in payload:
+        raise HTTPException(status_code=401, detail="Missing or invalid authorization token")
+    return payload
+
+
+async def require_admin(authorization: str = Header(None)) -> dict:
+    """Dependency: require a valid JWT with role=admin. Raises 401/403 otherwise."""
+    payload = await require_user(authorization)
+    if payload.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
+    return payload
+
+
+async def get_optional_user(authorization: str = Header(None)) -> Optional[dict]:
+    """Dependency: return user payload if a valid JWT is present, else None."""
+    return await _resolve_user(authorization)
 
 
 def get_current_user_id(credentials: HTTPAuthorizationCredentials = Depends(pwd_scheme)) -> str:

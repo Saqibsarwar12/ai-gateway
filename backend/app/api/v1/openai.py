@@ -1,21 +1,56 @@
 """OpenAI-compatible /v1/chat/completions endpoint."""
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Header
 from app.models.schemas import ChatCompletionRequest
 from app.routing.engine import RoutingEngine
 from app.db.session import async_session_maker
-from app.db.models import Provider, RoutingRule, RequestLog
+from app.db.models import Provider, RoutingRule, RequestLog, User
 from app.core.rate_limit import rate_limiter
-from sqlalchemy import select
+from app.core.auth import decode_token, get_optional_user
+from app.core.config import settings
+from sqlalchemy import select, or_
 import shortuuid
 import time
 
 router = APIRouter()
 
 
+async def _resolve_actor(authorization: str = Header(None), x_api_key: str = Header(None, alias="X-API-Key")) -> dict:
+    """Resolve the requesting user from either a JWT bearer or a raw sk-... API key.
+
+    Returns {"id": ..., "role": ..., "label": ...} on success.
+    Raises 401 on missing/invalid credentials.
+    """
+    token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    elif x_api_key:
+        token = x_api_key.strip()
+
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing API key or bearer token. Pass Authorization: Bearer <token> or X-API-Key: sk-...")
+
+    # Try JWT first
+    payload = decode_token(token, settings.SECRET_KEY)
+    if payload and "sub" in payload:
+        return {"id": payload["sub"], "role": payload.get("role", "user"), "label": "jwt"}
+
+    # Try API key
+    async with async_session_maker() as session:
+        result = await session.execute(select(User).where(User.api_key == token, User.is_active == True))
+        user = result.scalar_one_or_none()
+        if user:
+            return {"id": user.id, "role": user.role, "label": "api_key"}
+
+    raise HTTPException(status_code=401, detail="Invalid API key or token")
+
+
 @router.post("/chat/completions")
-async def chat_completions(req: ChatCompletionRequest, request: Request):
-    auth_header = request.headers.get("authorization", "")
-    api_key = auth_header.replace("Bearer ", "") if auth_header.startswith("Bearer ") else "anonymous"
+async def chat_completions(req: ChatCompletionRequest, request: Request, actor: dict = None):
+    actor = await _resolve_actor(
+        authorization=request.headers.get("authorization"),
+        x_api_key=request.headers.get("X-API-Key"),
+    )
+    api_key = actor["id"]  # use the user id as the rate-limit bucket
 
     allowed = await rate_limiter.is_allowed(f"rpm:{api_key}", limit=60, window_seconds=60)
     if not allowed:
