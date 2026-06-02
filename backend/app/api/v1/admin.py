@@ -27,7 +27,7 @@ def get_current_user(authorization: str = Header(None)):
     return data
 
 
-# ─── Auth ────────────────────────────────────────────────
+# ─── Auth ───────────────────
 @router.post("/auth/login")
 async def login(email: str, password: str):
     async with async_session_maker() as session:
@@ -140,6 +140,61 @@ async def test_provider(provider_id: str):
         adapter = OpenAIAdapter(name=p.id, base_url=p.base_url, api_key=p.api_key or "")
         health = await adapter.health_check()
         return health
+
+
+@router.post("/providers/{provider_id}/sync-models")
+async def sync_provider_models(provider_id: str):
+    """Fetch models from the provider's /models endpoint and create Model rows.
+    Existing models with the same (provider_id, model_id) get their name refreshed."""
+    async with async_session_maker() as session:
+        result = await session.execute(select(Provider).where(Provider.id == provider_id))
+        p = result.scalar_one_or_none()
+        if not p:
+            raise HTTPException(status_code=404, detail="Provider not found")
+        if not p.api_key:
+            raise HTTPException(status_code=400, detail="Provider has no API key configured")
+
+        from app.providers.adapters import OpenAIAdapter
+        adapter = OpenAIAdapter(name=p.id, base_url=p.base_url, api_key=p.api_key)
+        remote_ids = await adapter.list_models()
+        if not remote_ids:
+            # Fall back to the provider's `models` JSON list if the /models endpoint failed
+            remote_ids = list(p.models or [])
+
+        created, updated = 0, 0
+        now = datetime.utcnow()
+        for mid in remote_ids:
+            mid_str = str(mid).strip()
+            if not mid_str:
+                continue
+            existing = await session.execute(
+                select(Model).where(Model.provider_id == provider_id, Model.model_id == mid_str)
+            )
+            m = existing.scalar_one_or_none()
+            if m:
+                m.name = mid_str
+                m.updated_at = now
+                updated += 1
+            else:
+                session.add(Model(
+                    id=shortuuid.uuid(),
+                    name=mid_str,
+                    provider_id=provider_id,
+                    model_id=mid_str,
+                    mode="chat",
+                    input_cost_per_1m=0.0,
+                    output_cost_per_1m=0.0,
+                    context_window=8192,
+                    supports_functions=False,
+                    supports_vision=False,
+                    enabled=True,
+                    is_active=True,
+                ))
+                created += 1
+        p.models = remote_ids
+        p.updated_at = now
+        await session.commit()
+        return {"created": created, "updated": updated, "total": len(remote_ids), "models": remote_ids}
 
 
 # ─── Routing Rules ───────────────────────────────────────
