@@ -6,24 +6,25 @@ import { useAuth } from '@/lib/auth';
 import DashboardShell from '@/components/DashboardShell';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user, isLoading: loading, token, apiKey } = useAuth();
+  const { user, isLoading, token } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (!isLoading && !user) {
       router.push('/login');
     }
-  }, [user, loading, router]);
+  }, [user, isLoading, router]);
 
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0a0908] text-[#f5f1e8] flex items-center justify-center">
-        <div className="font-mono text-xs text-[#6b6358] tracking-[0.3em] uppercase">Loading…</div>
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
+        <div className="text-xs mono" style={{ color: 'var(--fg-2)', letterSpacing: '0.18em', textTransform: 'uppercase' }}>
+          Authenticating…
+        </div>
       </div>
     );
   }
 
-  if (!user) return null;
-
+  if (!user || !token) return null;
   return <DashboardShell>{children}</DashboardShell>;
 }

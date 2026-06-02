@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://ai-gateway-7dkh.onrender.com';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saki-gateway.indevs.in';
 
 interface User {
   id: string;
@@ -11,11 +11,11 @@ interface User {
   role?: string;
   credits?: number;
   api_key?: string;
+  is_active?: boolean;
 }
 
 interface AuthState {
   token: string | null;
-  apiKey: string | null;
   user: User | null;
   isLoading: boolean;
 }
@@ -25,6 +25,7 @@ interface AuthContextValue extends AuthState {
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
+  apiKey: string | null;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -32,18 +33,15 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({
     token: null,
-    apiKey: null,
     user: null,
     isLoading: true,
   });
 
   useEffect(() => {
     const token = localStorage.getItem('ai_gateway_token');
-    const apiKey = localStorage.getItem('ai_gateway_api_key');
     const userStr = localStorage.getItem('ai_gateway_user');
     setState({
       token,
-      apiKey,
       user: userStr ? JSON.parse(userStr) : null,
       isLoading: false,
     });
@@ -56,10 +54,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (auth.token) localStorage.setItem('ai_gateway_token', auth.token);
         else localStorage.removeItem('ai_gateway_token');
       }
-      if (auth.apiKey !== undefined) {
-        if (auth.apiKey) localStorage.setItem('ai_gateway_api_key', auth.apiKey);
-        else localStorage.removeItem('ai_gateway_api_key');
-      }
       if (auth.user !== undefined) {
         if (auth.user) localStorage.setItem('ai_gateway_user', JSON.stringify(auth.user));
         else localStorage.removeItem('ai_gateway_user');
@@ -68,33 +62,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string): Promise<void> => {
     const res = await fetch(`${API_BASE}/admin/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: 'Login failed' }));
-      throw new Error(err.detail || 'Login failed');
+      let detail = 'Login failed';
+      try {
+        const body = await res.json();
+        detail = body.detail || detail;
+      } catch {}
+      throw new Error(detail);
     }
     const data = await res.json();
     const user: User = data.user;
-    const apiKey: string = user.api_key || '';
-    setAuth({ token: data.access_token, apiKey, user });
+    setAuth({ token: data.access_token, user });
   };
 
   const logout = () => {
     localStorage.removeItem('ai_gateway_token');
-    localStorage.removeItem('ai_gateway_api_key');
     localStorage.removeItem('ai_gateway_user');
-    setState({ token: null, apiKey: null, user: null, isLoading: false });
+    setState({ token: null, user: null, isLoading: false });
   };
 
   const refresh = async () => {
     if (!state.token) return;
     try {
-      const res = await fetch(`${API_BASE}/admin/users/me`, {
+      const res = await fetch(`${API_BASE}/admin/auth/me`, {
         headers: { Authorization: `Bearer ${state.token}` },
       });
       if (res.ok) {
@@ -107,7 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ ...state, setAuth, login, logout, refresh }}>
+    <AuthContext.Provider value={{ ...state, setAuth, login, logout, refresh, apiKey: null }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,5 +1,5 @@
 // Live API client for AI Gateway backend
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saki-gateway.indevs.in';
 const TOKEN_KEY = 'ai_gateway_token';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -39,7 +39,8 @@ const del = <T>(path: string) => request<T>(path, { method: 'DELETE' });
 // ─── Auth ────────────────────────────────────────────────────────────────
 export const apiLogin = (email: string, password: string) =>
   post<{ access_token: string; token_type: string; user: any }>(
-    `/admin/auth/login?email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`
+    '/admin/auth/login',
+    { email, password }
   );
 
 export const apiRegister = (data: { name: string; email: string; password: string; role?: string }) =>
@@ -190,6 +191,7 @@ export type RoutingRule = {
   strategy: 'fallback' | 'cost' | 'latency' | 'round_robin' | 'weighted' | 'priority';
   model_pattern: string;
   provider_ids: string[];
+  provider_order?: string[];
   weights: Record<string, number>;
   is_active: boolean;
   priority: number;

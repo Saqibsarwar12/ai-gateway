@@ -1,80 +1,125 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Card, ErrorState, Loader } from '@/components/UI';
-import { api, type RequestLog } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
+import { Card, Loader, ErrorState, Input, Select } from '@/components/UI';
+import type { RequestLog } from '@/lib/api';
 
 export default function LogsPage() {
+  const { token, apiKey } = useAuth();
   const [logs, setLogs] = useState<RequestLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
 
-  const load = () => {
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  else if (apiKey) headers['X-API-Key'] = apiKey;
+
+  async function load() {
     setLoading(true);
-    api.listLogs(50)
-      .then(setLogs)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  };
+    setError(null);
+    try {
+      const r = await fetch('https://saki-gateway.indevs.in/admin/logs?limit=200', { headers });
+      if (!r.ok) throw new Error(`${r.status}`);
+      setLogs(await r.json());
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, apiKey]);
 
-  useEffect(() => { load(); }, []);
+  if (loading) return <Loader label="Loading logs" />;
+  if (error) return <ErrorState error={error} onRetry={load} />;
 
-  if (loading) return <Loader label="Loading request logs" />;
-  if (error) return <ErrorState error={error} />;
+  const filtered = logs.filter((l) => {
+    if (statusFilter === 'ok' && l.status_code >= 400) return false;
+    if (statusFilter === 'err' && l.status_code < 400) return false;
+    if (filter) {
+      const q = filter.toLowerCase();
+      return (
+        l.model.toLowerCase().includes(q) ||
+        (l.provider || '').toLowerCase().includes(q) ||
+        (l.error || '').toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
 
   return (
-    <div className="space-y-8">
-      <header className="flex items-end justify-between">
+    <div className="stack">
+      <header className="section-head">
         <div>
-          <p className="font-mono text-[10px] tracking-[0.4em] text-[#6b6358] uppercase mb-2">Section 06 / Telemetry</p>
-          <h1 className="font-serif text-5xl italic">Request log</h1>
-          <p className="mt-3 text-sm text-[#8a8278] font-mono">{logs.length} requests · last 50 entries</p>
+          <div className="section-eyebrow">Section 06 / Request logs</div>
+          <h1 className="section-title">Traffic</h1>
+          <p className="section-sub mono">
+            {logs.length} entries · {logs.filter((l) => l.status_code >= 400).length} errors
+          </p>
         </div>
-        <button onClick={load}
-          className="font-mono text-xs uppercase tracking-widest px-6 py-3 border border-[#3a342c] text-[#f5f1e8] hover:border-[#d8a657]">
-          Refresh
-        </button>
+        <div className="row">
+          <Input value={filter} onChange={setFilter} placeholder="Filter model / error…" />
+          <Select
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={[
+              { value: 'all', label: 'All' },
+              { value: 'ok', label: 'OK only' },
+              { value: 'err', label: 'Errors only' },
+            ]}
+          />
+        </div>
       </header>
 
-      {logs.length === 0 ? (
-        <Card>
-          <div className="text-center py-12">
-            <p className="font-serif italic text-2xl text-[#8a8278] mb-2">No requests yet</p>
-            <p className="font-mono text-xs text-[#6b6358]">Logs will appear here once you start sending traffic.</p>
+      <Card>
+        {filtered.length === 0 ? (
+          <div className="empty-box">No log entries.</div>
+        ) : (
+          <div className="table-wrap">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Provider</th>
+                  <th>Model</th>
+                  <th>Tokens</th>
+                  <th>Latency</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((l) => (
+                  <tr key={l.id}>
+                    <td className="mono text-xs dim">{(l.created_at || '').replace('T', ' ').slice(0, 19)}</td>
+                    <td className="mono text-sm">{l.provider || '—'}</td>
+                    <td className="mono text-sm wrap" style={{ maxWidth: '14rem' }}>
+                      {l.model}
+                    </td>
+                    <td className="mono text-xs">
+                      {(l.input_tokens || 0).toLocaleString()} ↑ / {(l.output_tokens || 0).toLocaleString()} ↓
+                    </td>
+                    <td className="mono text-xs">{Math.round(l.latency_ms || 0)}ms</td>
+                    <td>
+                      {l.status_code >= 400 ? (
+                        <span title={l.error || ''} className="badge badge-err">
+                          {l.status_code}
+                        </span>
+                      ) : (
+                        <span className="badge badge-ok">{l.status_code}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </Card>
-      ) : (
-        <div className="space-y-0 border-t border-[#3a342c]">
-          <div className="grid grid-cols-12 gap-3 py-2 font-mono text-[10px] uppercase tracking-widest text-[#6b6358] border-b border-[#3a342c]">
-            <div className="col-span-3">Time</div>
-            <div className="col-span-2">Model</div>
-            <div className="col-span-2">Provider</div>
-            <div className="col-span-1 text-right">Tokens</div>
-            <div className="col-span-1 text-right">Latency</div>
-            <div className="col-span-1 text-right">Cost</div>
-            <div className="col-span-2 text-right">Status</div>
-          </div>
-          {logs.map((l) => (
-            <div key={l.id} className="grid grid-cols-12 gap-3 py-3 font-mono text-xs text-[#d4cdbf] border-b border-[#2a2520] hover:bg-[#1a1612]">
-              <div className="col-span-3 text-[#8a8278]">{new Date(l.created_at).toLocaleString()}</div>
-              <div className="col-span-2 text-[#f5f1e8]">{l.model}</div>
-              <div className="col-span-2 text-[#8a8278]">{l.provider || '—'}</div>
-              <div className="col-span-1 text-right text-[#8a8278]">{(l.input_tokens || 0) + (l.output_tokens || 0)}</div>
-              <div className="col-span-1 text-right text-[#8a8278]">{Math.round(l.latency_ms || 0)}ms</div>
-              <div className="col-span-1 text-right text-[#d8a657]">${(l.cost_usd || 0).toFixed(4)}</div>
-              <div className="col-span-2 text-right">
-                <span className={`inline-block px-2 py-0.5 text-[10px] ${
-                  l.status_code && l.status_code < 300
-                    ? 'bg-[#4a6b3a] text-[#d4e8c4]'
-                    : 'bg-[#6b3a3a] text-[#e8c4c4]'
-                }`}>
-                  {l.status_code || '—'}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+        )}
+      </Card>
     </div>
   );
 }

@@ -1,84 +1,44 @@
-// Reusable UI components for AI Gateway dashboard
+'use client';
+// Shared UI primitives for AI Gateway dashboard.
+// All colours come from the obsidian palette in globals.css. No gradients.
 
-import React from 'react';
+import React, { ReactNode } from 'react';
 
-// ─── Card ──────────────────────────────────────────────────────────────
+// ─── Card ────────────────────────────────────────────────────────────
 export function Card({
   title,
-  subtitle,
+  eyebrow,
   action,
   children,
   className = '',
-  accent = 'none',
+  elevated = false,
+  style,
 }: {
   title?: string;
-  subtitle?: string | React.ReactNode;
-  action?: React.ReactNode;
-  children: React.ReactNode;
+  eyebrow?: string;
+  action?: ReactNode;
+  children: ReactNode;
   className?: string;
-  accent?: 'none' | 'acid' | 'rose' | 'cyan' | 'amber';
+  elevated?: boolean;
+  style?: React.CSSProperties;
 }) {
-  const accentClass = {
-    none: '',
-    acid: 'border-l-2 border-l-[#c8ff3d]',
-    rose: 'border-l-2 border-l-[#ff5d8f]',
-    cyan: 'border-l-2 border-l-[#4dd0e1]',
-    amber: 'border-l-2 border-l-[#ffb74d]',
-  }[accent];
-
   return (
-    <div className={`bg-[#0d0d0c] border border-white/5 rounded-sm ${accentClass} ${className}`}>
-      {(title || action) && (
-        <div className="flex items-start justify-between border-b border-white/5 px-5 py-3">
+    <div className={`${elevated ? 'card-elevated' : 'card'} ${className}`} style={style}>
+      {(title || eyebrow || action) && (
+        <div className="card-header">
           <div>
-            {title && <h3 className="text-[11px] font-mono uppercase tracking-[0.18em] text-white/40">{title}</h3>}
-            {subtitle && <div className="mt-1 text-xs text-white/30">{subtitle}</div>}
+            {eyebrow && <div className="section-eyebrow">{eyebrow}</div>}
+            {title && <h3 className="text-base font-semibold wrap" style={{ color: 'var(--fg-0)' }}>{title}</h3>}
           </div>
-          {action && <div>{action}</div>}
+          {action}
         </div>
       )}
-      <div className="p-5">{children}</div>
+      <div>{children}</div>
     </div>
   );
 }
 
-// ─── Stat (alias) ──────────────────────────────────────────────────────
-// Stat removed - use StatCard
-
-// ─── StatCard with value ───────────────────────────────────────────────
-export function StatCard({
-  label,
-  value,
-  hint,
-  trend,
-  accent = 'none',
-}: {
-  label: string;
-  value: string | number;
-  hint?: string;
-  trend?: { value: number; positive?: boolean };
-  accent?: 'none' | 'acid' | 'rose' | 'cyan' | 'amber';
-}) {
-  return (
-    <Card accent={accent} className="relative overflow-hidden">
-      <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/30 mb-3">{label}</div>
-      <div className="text-4xl font-serif text-white tracking-tight">{value}</div>
-      {hint && <div className="mt-2 text-xs text-white/40 font-mono">{hint}</div>}
-      {trend && (
-        <div
-          className={`mt-2 inline-flex items-center gap-1 text-xs font-mono ${
-            trend.positive ? 'text-[#c8ff3d]' : 'text-[#ff5d8f]'
-          }`}
-        >
-          <span>{trend.positive ? '↑' : '↓'}</span>
-          <span>{Math.abs(trend.value).toFixed(1)}%</span>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-// ─── Button ────────────────────────────────────────────────────────────
+// ─── Button ──────────────────────────────────────────────────────────
 export function Button({
   children,
   onClick,
@@ -87,193 +47,150 @@ export function Button({
   size = 'md',
   disabled = false,
   className = '',
+  title,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   onClick?: () => void;
   type?: 'button' | 'submit' | 'reset';
-  variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'acid';
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
   size?: 'sm' | 'md' | 'lg';
   disabled?: boolean;
   className?: string;
+  title?: string;
 }) {
-  const variants = {
-    primary: 'bg-white text-black hover:bg-white/90',
-    secondary: 'bg-white/5 text-white border border-white/10 hover:bg-white/10',
-    ghost: 'text-white/60 hover:text-white hover:bg-white/5',
-    danger: 'bg-[#ff5d8f]/10 text-[#ff5d8f] border border-[#ff5d8f]/30 hover:bg-[#ff5d8f]/20',
-    acid: 'bg-[#c8ff3d] text-black hover:bg-[#c8ff3d]/90',
-  };
-  const sizes = {
-    sm: 'px-3 py-1.5 text-xs',
-    md: 'px-4 py-2 text-sm',
-    lg: 'px-5 py-2.5 text-sm',
-  };
+  const sz = size === 'sm' ? '0.4375rem 0.6875rem' : size === 'lg' ? '0.6875rem 1.125rem' : '0.5rem 0.875rem';
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`font-mono uppercase tracking-wider transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${sizes[size]} ${className}`}
+      title={title}
+      className={`btn btn-${variant} ${className}`}
+      style={{ padding: sz, fontSize: size === 'sm' ? '0.75rem' : size === 'lg' ? '0.9375rem' : '0.8125rem' }}
     >
       {children}
     </button>
   );
 }
 
-// ─── Input ─────────────────────────────────────────────────────────────
+// ─── Input / Textarea / Select ──────────────────────────────────────
 export function Input({
-  label,
-  value,
-  onChange,
-  type = 'text',
-  placeholder,
-  required = false,
-  hint,
-  autoComplete,
-  className = '',
+  label, value, onChange, type = 'text', placeholder, required, minLength, maxLength, hint, autoComplete, disabled, className = '', step, min, max,
 }: {
-  label?: string;
-  value: string;
-  onChange: (v: string) => void;
-  autoComplete?: string;
-  type?: string;
-  placeholder?: string;
-  required?: boolean;
-  hint?: string;
-  className?: string;
+  label?: string; value: string; onChange: (v: string) => void;
+  type?: string; placeholder?: string; required?: boolean; hint?: ReactNode;
+  autoComplete?: string; disabled?: boolean; className?: string; step?: string | number; min?: string | number; max?: string | number; minLength?: number; maxLength?: number;
 }) {
   return (
-    <div className={className}>
-      {label && (
-        <label className="block font-mono text-[10px] uppercase tracking-[0.2em] text-white/40 mb-2">
-          {label} {required && <span className="text-[#ff5d8f]">*</span>}
-        </label>
-      )}
+    <div className={`field ${className}`}>
+      {label && <label className="label">{label}{required && <span style={{ color: 'var(--err)' }}> *</span>}</label>}
       <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        required={required}
-        className="w-full bg-black/30 border border-white/10 px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-[#c8ff3d]/50 transition-colors font-mono"
-        autoComplete={autoComplete}
+        type={type} value={value} onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder} required={required} autoComplete={autoComplete} disabled={disabled}
+        className="input"
+        step={step} min={min} max={max} minLength={minLength} maxLength={maxLength}
       />
-      {hint && <div className="mt-1.5 text-xs text-white/30">{hint}</div>}
+      {hint && <div className="text-xs muted" style={{ marginTop: '0.375rem' }}>{hint}</div>}
     </div>
   );
 }
 
-// ─── Select ────────────────────────────────────────────────────────────
+export function Textarea({
+  label, value, onChange, placeholder, rows = 4, hint, className = '',
+}: {
+  label?: string; value: string; onChange: (v: string) => void;
+  placeholder?: string; rows?: number; hint?: ReactNode; className?: string;
+}) {
+  return (
+    <div className={`field ${className}`}>
+      {label && <label className="label">{label}</label>}
+      <textarea
+        value={value} onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder} rows={rows}
+        className="textarea"
+      />
+      {hint && <div className="text-xs muted" style={{ marginTop: '0.375rem' }}>{hint}</div>}
+    </div>
+  );
+}
+
 export function Select({
-  label,
-  value,
-  onChange,
-  options,
-  className = '',
+  label, value, onChange, options, className = '', disabled, hint,
 }: {
-  label?: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-  className?: string;
+  label?: string; value: string; onChange: (v: string) => void;
+  options: { value: string; label: string }[]; className?: string; disabled?: boolean; hint?: ReactNode;
 }) {
   return (
-    <div className={className}>
-      {label && (
-        <label className="block font-mono text-[10px] uppercase tracking-[0.2em] text-white/40 mb-2">
-          {label}
-        </label>
-      )}
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-black/30 border border-white/10 px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#c8ff3d]/50 transition-colors font-mono"
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value} className="bg-[#0d0d0c]">
-            {o.label}
-          </option>
-        ))}
+    <div className={`field ${className}`}>
+      {label && <label className="label">{label}</label>}
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="select" disabled={disabled}>
+        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
+      {hint && <div className="text-xs muted" style={{ marginTop: '0.375rem' }}>{hint}</div>}
     </div>
   );
 }
 
-// ─── Badge ─────────────────────────────────────────────────────────────
+export function Checkbox({
+  label, checked, onChange,
+}: { label: ReactNode; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="row" style={{ cursor: 'pointer' }}>
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <span className="text-sm">{label}</span>
+    </label>
+  );
+}
+
+// ─── Badge ──────────────────────────────────────────────────────────
 export function Badge({
-  children,
-  variant = 'default',
-  className = '',
-}: {
-  children: React.ReactNode;
-  variant?: 'default' | 'success' | 'warning' | 'danger' | 'info' | 'acid';
-  className?: string;
-}) {
-  const v = {
-    default: 'bg-white/5 text-white/60 border-white/10',
-    success: 'bg-[#c8ff3d]/10 text-[#c8ff3d] border-[#c8ff3d]/30',
-    warning: 'bg-[#ffb74d]/10 text-[#ffb74d] border-[#ffb74d]/30',
-    danger: 'bg-[#ff5d8f]/10 text-[#ff5d8f] border-[#ff5d8f]/30',
-    info: 'bg-[#4dd0e1]/10 text-[#4dd0e1] border-[#4dd0e1]/30',
-    acid: 'bg-[#c8ff3d] text-black border-[#c8ff3d]',
-  }[variant];
+  children, variant = 'default', className = '',
+}: { children: ReactNode; variant?: 'default' | 'ok' | 'warn' | 'err' | 'info' | 'mute'; className?: string }) {
+  const cls = variant === 'ok' ? 'badge-ok' : variant === 'warn' ? 'badge-warn' : variant === 'err' ? 'badge-err' : variant === 'info' ? 'badge-info' : variant === 'mute' ? 'badge-mute' : '';
+  return <span className={`badge ${cls} ${className}`}>{children}</span>;
+}
+
+// ─── Stat ───────────────────────────────────────────────────────────
+export function Stat({
+  label, value, hint, accent = 'none',
+}: { label: string; value: ReactNode; hint?: ReactNode; accent?: 'none' | 'ok' | 'warn' | 'err' }) {
+  const dot = accent === 'ok' ? 'dot-ok' : accent === 'warn' ? 'dot-warn' : accent === 'err' ? 'dot-err' : 'dot-idle';
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider border ${v} ${className}`}>
-      {children}
-    </span>
+    <div className="stat">
+      <div className="stat-label">{label}</div>
+      <div className="stat-value wrap">{value}</div>
+      {hint && <div className="stat-hint">{hint}</div>}
+      {accent !== 'none' && <div style={{ marginTop: '0.5rem' }}><span className={`dot ${dot}`} /></div>}
+    </div>
   );
 }
 
-// ─── Spinner / Loader ──────────────────────────────────────────────────
+// ─── Spinner / Loader ───────────────────────────────────────────────
 export function Spinner({ size = 16 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      className="animate-spin"
-      style={{ color: '#c8ff3d' }}
-    >
-      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeOpacity="0.2" strokeWidth="3" />
-      <path
-        d="M12 2a10 10 0 0 1 10 10"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
+  return <span className="spinner" style={{ width: size, height: size }} />;
 }
-
 export function Loader({ label }: { label?: string }) {
   return (
-    <div className="flex items-center gap-3 text-white/50 font-mono text-xs">
-      <Spinner />
-      {label && <span className="uppercase tracking-wider">{label}</span>}
+    <div className="loader-block">
+      <Spinner /> {label && <span>{label}</span>}
     </div>
   );
 }
 
-// ─── ErrorState ────────────────────────────────────────────────────────
+// ─── ErrorState ─────────────────────────────────────────────────────
 export function ErrorState({ error, onRetry }: { error: string | Error; onRetry?: () => void }) {
   const msg = error instanceof Error ? error.message : error;
   return (
-    <div className="border border-[#ff5d8f]/30 bg-[#ff5d8f]/5 p-5">
-      <div className="flex items-start gap-3">
-        <div className="w-2 h-2 bg-[#ff5d8f] rounded-full mt-1.5 flex-shrink-0" />
-        <div className="flex-1">
-          <div className="font-mono text-xs uppercase tracking-wider text-[#ff5d8f] mb-1">
-            Something broke
-          </div>
-          <div className="text-sm text-white/70 font-mono">{msg}</div>
+    <div className="card" style={{ borderColor: 'var(--line-strong)' }}>
+      <div className="row" style={{ alignItems: 'flex-start' }}>
+        <span className="dot dot-err" style={{ marginTop: '0.4375rem' }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="text-sm font-semibold mb-1">Error</div>
+          <div className="text-sm muted wrap mono">{msg}</div>
           {onRetry && (
-            <button
-              onClick={onRetry}
-              className="mt-3 text-xs font-mono uppercase tracking-wider text-white/60 hover:text-white"
-            >
-              ↻ Try again
-            </button>
+            <div style={{ marginTop: '0.75rem' }}>
+              <Button onClick={onRetry} variant="secondary" size="sm">Try again</Button>
+            </div>
           )}
         </div>
       </div>
@@ -281,61 +198,73 @@ export function ErrorState({ error, onRetry }: { error: string | Error; onRetry?
   );
 }
 
-// ─── EmptyState ────────────────────────────────────────────────────────
+// ─── EmptyState ─────────────────────────────────────────────────────
 export function EmptyState({
-  title,
-  hint,
-  action,
-}: {
-  title: string;
-  hint?: string;
-  action?: React.ReactNode;
-}) {
+  title, hint, action,
+}: { title: string; hint?: string; action?: ReactNode }) {
   return (
-    <div className="border border-dashed border-white/10 p-8 text-center">
-      <div className="font-serif text-2xl text-white/50 mb-2">{title}</div>
-      {hint && <div className="text-sm text-white/30 mb-4 font-mono">{hint}</div>}
+    <div className="card" style={{ borderStyle: 'dashed', textAlign: 'center', padding: '2.5rem 1rem' }}>
+      <div className="text-lg font-semibold mb-1">{title}</div>
+      {hint && <div className="text-sm muted" style={{ marginBottom: action ? '1rem' : 0 }}>{hint}</div>}
       {action}
     </div>
   );
 }
 
-// ─── Modal ─────────────────────────────────────────────────────────────
+// ─── Modal ──────────────────────────────────────────────────────────
 export function Modal({
-  open,
-  onClose,
-  title,
-  children,
-  width = 'md',
+  open, onClose, title, children, footer, width = 'md',
 }: {
-  open: boolean;
-  onClose: () => void;
-  title: string;
-  children: React.ReactNode;
-  width?: 'sm' | 'md' | 'lg' | 'xl';
+  open: boolean; onClose: () => void; title: string;
+  children: ReactNode; footer?: ReactNode; width?: 'sm' | 'md' | 'lg';
 }) {
   if (!open) return null;
-  const widths = {
-    sm: 'max-w-md',
-    md: 'max-w-xl',
-    lg: 'max-w-3xl',
-    xl: 'max-w-5xl',
-  };
+  const cls = width === 'lg' ? 'modal modal-lg' : 'modal';
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <div className={`w-full ${widths[width]} bg-[#0d0d0c] border border-white/10 max-h-[90vh] overflow-y-auto`}>
-        <div className="flex items-center justify-between border-b border-white/5 px-5 py-3">
-          <h2 className="font-mono text-xs uppercase tracking-[0.2em] text-white/60">{title}</h2>
-          <button
-            onClick={onClose}
-            className="text-white/40 hover:text-white text-xl leading-none"
-            aria-label="Close"
-          >
-            ×
-          </button>
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className={cls} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3 className="text-base font-semibold wrap">{title}</h3>
+          <button onClick={onClose} aria-label="Close" className="btn btn-ghost" style={{ padding: '0.25rem 0.5rem' }}>×</button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="modal-body">{children}</div>
+        {footer && <div className="modal-footer">{footer}</div>}
       </div>
+    </div>
+  );
+}
+
+// ─── CopyableText ───────────────────────────────────────────────────
+export function CopyableText({ value, label }: { value: string; label?: string }) {
+  const [copied, setCopied] = React.useState(false);
+  return (
+    <div className="row" style={{ gap: '0.375rem' }}>
+      <code className="mono text-xs" style={{
+        background: 'var(--bg-0)', border: '1px solid var(--line)', padding: '0.1875rem 0.4375rem',
+        borderRadius: 3, maxWidth: '100%', overflowWrap: 'anywhere', wordBreak: 'break-all',
+      }}>{value}</code>
+      <button
+        className="btn btn-ghost"
+        style={{ padding: '0.1875rem 0.4375rem', fontSize: '0.6875rem' }}
+        onClick={() => {
+          navigator.clipboard.writeText(value);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+      {label && <span className="text-xs dim">{label}</span>}
+    </div>
+  );
+}
+
+// ─── KeyValue ───────────────────────────────────────────────────────
+export function KeyValue({ k, v, mono = true }: { k: string; v: ReactNode; mono?: boolean }) {
+  return (
+    <div className="between" style={{ padding: '0.4375rem 0', borderBottom: '1px solid var(--line)' }}>
+      <span className="text-xs muted">{k}</span>
+      <span className={`text-sm wrap ${mono ? 'mono' : ''}`} style={{ maxWidth: '60%', textAlign: 'right' }}>{v}</span>
     </div>
   );
 }

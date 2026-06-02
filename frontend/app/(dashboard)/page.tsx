@@ -1,83 +1,104 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Card, StatCard as Stat, ErrorState, Loader } from '@/components/UI';
-import { api, type Provider, type AIModel as Model, type User } from '@/lib/api';
+import { Card, Loader, ErrorState, Stat } from '@/components/UI';
+import { useAuth } from '@/lib/auth';
+
+type Analytics = {
+  total_requests: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cost_usd: number;
+  avg_latency_ms: number;
+  success_rate: number;
+  error_count: number;
+};
 
 export default function OverviewPage() {
-  const [providers, setProviders] = useState<Provider[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
+  const { token, apiKey } = useAuth();
+  const [stats, setStats] = useState<Analytics | null>(null);
+  const [providers, setProviders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.listProviders(), api.listUsers()])
-      .then(([p, u]) => {
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    else if (apiKey) headers['X-API-Key'] = apiKey;
+    Promise.all([
+      fetch('https://saki-gateway.indevs.in/admin/analytics?days=7', { headers }).then((r) =>
+        r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`))
+      ),
+      fetch('https://saki-gateway.indevs.in/admin/providers', { headers }).then((r) =>
+        r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`))
+      ),
+    ])
+      .then(([s, p]) => {
+        setStats(s);
         setProviders(p);
-        setUsers(u);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [token, apiKey]);
 
   if (loading) return <Loader label="Loading overview" />;
   if (error) return <ErrorState error={error} />;
 
-  const enabled = providers.filter((p) => p.is_active !== false && p.enabled !== false).length;
-  const total = providers.length;
-
   return (
-    <div className="space-y-8">
-      <header className="flex items-end justify-between">
+    <div className="stack">
+      <header className="section-head">
         <div>
-          <p className="font-mono text-[10px] tracking-[0.4em] text-[#6b6358] uppercase mb-2">Section 01 / Overview</p>
-          <h1 className="font-serif text-5xl italic">Gateway status</h1>
-        </div>
-        <div className="text-right">
-          <p className="font-mono text-[10px] text-[#6b6358] uppercase tracking-widest">Last sync</p>
-          <p className="font-mono text-sm text-[#f5f1e8]">{new Date().toLocaleTimeString()}</p>
+          <div className="section-eyebrow">Section 01 / Overview</div>
+          <h1 className="section-title">Operations summary</h1>
+          <p className="section-sub mono">Last 7 days · live from the gateway</p>
         </div>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-0 border-t border-b border-[#3a342c]">
-        <Stat label="Providers" value={`${enabled}/${total}`} accent="cyan" />
-        <Stat label="Users" value={String(users.length)} />
-        <Stat label="Status" value="Online" accent="acid" />
+      <div className="grid-stats">
+        <Stat label="Total requests" value={stats?.total_requests?.toLocaleString() ?? 0} hint="past 7 days" />
+        <Stat label="Input tokens" value={stats?.total_input_tokens?.toLocaleString() ?? 0} />
+        <Stat label="Output tokens" value={stats?.total_output_tokens?.toLocaleString() ?? 0} />
+        <Stat
+          label="Cost (USD)"
+          value={stats ? `$${stats.total_cost_usd.toFixed(4)}` : '$0.0000'}
+          hint={stats?.total_requests ? 'incurred' : 'none yet'}
+        />
+        <Stat
+          label="Avg latency"
+          value={stats ? `${stats.avg_latency_ms.toFixed(0)} ms` : '—'}
+        />
+        <Stat
+          label="Success rate"
+          value={stats ? `${stats.success_rate.toFixed(1)}%` : '—'}
+          hint={stats?.error_count ? `${stats.error_count} errors` : 'no errors'}
+        />
+        <Stat label="Providers" value={providers.length} hint="configured upstreams" />
+        <Stat label="Active" value={providers.filter((p) => p.is_active !== false).length} hint="currently enabled" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card title="Active providers" subtitle="Upstreams reachable from the gateway">
-          {providers.length === 0 ? (
-            <p className="font-mono text-xs text-[#6b6358]">No providers configured yet.</p>
-          ) : (
-            <ul className="divide-y divide-[#2a2520]">
-              {providers.slice(0, 6).map((p) => (
-                <li key={p.id} className="py-3 flex items-center justify-between">
-                  <div>
-                    <p className="font-serif text-lg text-[#f5f1e8]">{p.name}</p>
-                    <p className="font-mono text-[10px] text-[#6b6358] uppercase tracking-wider">{p.provider_type}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-mono text-xs text-[#f5f1e8]">{(p.models || []).length} models</p>
-                    <p className="font-mono text-[10px] text-[#6b6358]">{p.base_url}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+      <div className="grid-2" style={{ marginTop: '1rem' }}>
+        <Card title="What this is" eyebrow="Section 01">
+          <p className="text-sm muted wrap">
+            AI Gateway routes OpenAI-compatible chat completions across multiple upstream providers
+            (OpenAI, Anthropic, DeepSeek, custom). It exposes a single base URL, an admin console,
+            and per-user API keys with credit limits.
+          </p>
+          <ul className="text-sm muted" style={{ paddingLeft: '1.25rem', lineHeight: 1.8, marginTop: '0.75rem' }}>
+            <li>OpenAI-compatible <code className="mono">/v1/chat/completions</code></li>
+            <li>Multi-provider fallback routing</li>
+            <li>Per-user API keys, credits, role-based access</li>
+            <li>Live request logs, analytics, and cost tracking</li>
+          </ul>
         </Card>
 
-        <Card title="Quick start" subtitle="Get to a working provider in 60 seconds">
-          <ol className="space-y-3 font-serif text-base text-[#d4cdbf]">
-            <li><span className="font-mono text-xs text-[#d8a657] mr-3">01</span>Add your first upstream provider</li>
-            <li><span className="font-mono text-xs text-[#d8a657] mr-3">02</span>Run a health check</li>
-            <li><span className="font-mono text-xs text-[#d8a657] mr-3">03</span>Send a chat completion via the OpenAI-compatible API</li>
-          </ol>
-          <pre className="mt-6 p-4 bg-[#0a0908] border border-[#2a2520] text-[10px] font-mono text-[#8a8278] overflow-x-auto">
-{`curl -X POST https://ai-gateway-7dkh.onrender.com/v1/chat/completions \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
+        <Card title="Base URL" eyebrow="How to call the gateway">
+          <pre className="code wrap">https://saki-gateway.indevs.in/v1</pre>
+          <p className="text-sm muted" style={{ marginTop: '0.5rem' }}>Use any OpenAI-compatible client:</p>
+          <pre className="code wrap">
+{`curl https://saki-gateway.indevs.in/v1/chat/completions \\
+  -H "Authorization: Bearer $AI_GATEWAY_KEY" \\
   -H "Content-Type: application/json" \\
-  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}'`}
+  -d '{"model":"<model>","messages":[{"role":"user","content":"hi"}]}'`}
           </pre>
         </Card>
       </div>
