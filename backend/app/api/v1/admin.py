@@ -505,3 +505,190 @@ async def create_model(data: dict, _: dict = Depends(require_admin)):
         session.add(m)
         await session.commit()
         return {"id": m.id, "name": m.name}
+
+# ─── Provider Presets (public) ─────────────────────────────────────────
+@router.get("/providers/presets")
+async def list_provider_presets(_: dict = Depends(require_user)):
+    """Return the list of preconfigured provider presets for the UI dropdown.
+
+    Each preset is a dict with id, label, base_url, provider_type, and a
+    short hint. The frontend uses this to populate the "add provider" form.
+    """
+    from app.core.provider_presets import get_presets
+    return get_presets()
+
+
+# ─── Discover models from any base URL + API key ─────────────────────
+class DiscoverBody(BaseModel):
+    base_url: str
+    api_key: str = ""
+    provider_type: str = "openai"
+
+@router.post("/providers/discover")
+async def discover_models(body: DiscoverBody, _: dict = Depends(require_user)):
+    """Hit the provider's /models endpoint with the given base URL + key.
+
+    Returns a list of model ids. The UI calls this when the user pastes
+    a base URL + API key so they see what models are available before saving.
+    Works with ANY OpenAI-compatible endpoint — the user can plug in a
+    custom URL and we'll try to fetch /models and /chat/completions.
+    """
+    import httpx
+    from app.core.provider_presets import normalize_base_url, PRESETS
+
+    base = normalize_base_url(body.base_url, body.provider_type)
+
+    headers = {"Content-Type": "application/json"}
+    if body.api_key:
+        # Anthropic uses x-api-key + anthropic-version instead of Authorization
+        if body.provider_type == "anthropic":
+            headers["x-api-key"] = body.api_key
+            headers["anthropic-version"] = "2023-06-01"
+        else:
+            headers["Authorization"] = f"Bearer {body.api_key}"
+
+    result = {
+        "ok": False,
+        "base_url": base,
+        "models": [],
+        "error": None,
+        "warning": None,
+        "auth_scheme": (
+            "x-api-key + anthropic-version"
+            if body.provider_type == "anthropic"
+            else "Authorization: Bearer"
+        ),
+    }
+
+    # Try the /models endpoint with a short timeout
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get(f"{base}/models", headers=headers)
+            if r.status_code == 200:
+                data = r.json()
+                ids = []
+                # OpenAI / OpenAI-compatible shape: {"data": [{"id": "..."}]}
+                if isinstance(data, dict) and isinstance(data.get("data"), list):
+                    ids = [str(m.get("id") or m.get("name") or "").strip()
+                           for m in data["data"]]
+                    ids = [i for i in ids if i]
+                # Some gateways use {"models": ["..."]} or just a list
+                elif isinstance(data, dict) and isinstance(data.get("models"), list):
+                    ids = [str(x) for x in data["models"] if x]
+                elif isinstance(data, list):
+                    ids = [str(m.get("id") if isinstance(m, dict) else m)
+                           for m in data if m]
+                if ids:
+                    result["ok"] = True
+                    result["models"] = ids
+                else:
+                    result["warning"] = "Connected, but the response had no model list."
+            elif r.status_code == 401:
+                result["error"] = "401 Unauthorized — check the API key."
+            elif r.status_code == 403:
+                result["error"] = "403 Forbidden — the key doesn't have access."
+            elif r.status_code == 404:
+                result["warning"] = "No /models endpoint (404). The provider may not support listing — you can still add it manually."
+            else:
+                result["error"] = f"{r.status_code}: {r.text[:200]}"
+    except httpx.ConnectError as e:
+        result["error"] = f"Connection failed: {e}"
+    except httpx.TimeoutException:
+        result["error"] = "Timed out (20s). The base URL may be unreachable from Render."
+    except Exception as e:
+        result["error"] = f"{type(e).__name__}: {e}"
+
+    # If we couldn't get a model list, return the preset's known models as a fallback
+    if not result["models"] and not result["error"]:
+        for preset in PRESETS:
+            if base.rstrip("/").startswith(preset["base_url"].rstrip("/")):
+                result["models"] = list(preset.get("known_models", []))
+                result["warning"] = (
+                    result["warning"]
+                    or "Could not fetch a model list. Showing the preset's known models — you can edit them before saving."
+                )
+                break
+
+    return result
+
+
+# ─── Quick test: send a tiny chat to verify the key actually works ───
+class TestKeyBody(BaseModel):
+    base_url: str
+    api_key: str = ""
+    model: str = ""
+    provider_type: str = "openai"
+
+@router.post("/providers/test-key")
+async def test_provider_key(body: TestKeyBody, _: dict = Depends(require_user)):
+    """Send a tiny chat completion to confirm the base URL + key actually work.
+
+    This is a real end-to-end check — if the provider replies with a 200 we
+    mark ok=True and return the response. Otherwise we report the exact error.
+    """
+    import httpx, time
+    from app.core.provider_presets import normalize_base_url
+
+    base = normalize_base_url(body.base_url, body.provider_type)
+    if not body.model:
+        return {"ok": False, "error": "No model specified"}
+
+    start = time.time()
+    try:
+        if body.provider_type == "anthropic":
+            # Anthropic Messages API
+            headers = {
+                "x-api-key": body.api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "model": body.model,
+                "max_tokens": 8,
+                "messages": [{"role": "user", "content": "ping"}],
+            }
+            url = f"{base}/messages"
+        else:
+            # OpenAI-compatible
+            headers = {
+                "Authorization": f"Bearer {body.api_key}" if body.api_key else "",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "model": body.model,
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 8,
+                "stream": False,
+            }
+            url = f"{base}/chat/completions"
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(url, headers=headers, json=payload)
+            latency_ms = int((time.time() - start) * 1000)
+            if r.status_code == 200:
+                data = r.json()
+                content = ""
+                if body.provider_type == "anthropic":
+                    content = (data.get("content") or [{}])[0].get("text", "")
+                else:
+                    content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
+                return {
+                    "ok": True,
+                    "latency_ms": latency_ms,
+                    "status_code": 200,
+                    "response_preview": (content[:120] or "(empty content)"),
+                    "usage": data.get("usage"),
+                }
+            else:
+                return {
+                    "ok": False,
+                    "latency_ms": latency_ms,
+                    "status_code": r.status_code,
+                    "error": r.text[:400],
+                }
+    except httpx.ConnectError as e:
+        return {"ok": False, "error": f"Connection failed: {e}"}
+    except httpx.TimeoutException:
+        return {"ok": False, "error": "Timed out (30s)"}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
