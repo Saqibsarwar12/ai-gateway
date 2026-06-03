@@ -90,6 +90,7 @@ async def login(body: LoginBody):
                 "role": user.role,
                 "credits": user.credits,
                 "is_active": user.is_active,
+                "api_key": user.api_key,
             },
         }
 
