@@ -1,0 +1,92 @@
+# CI pipeline to smoke-test the AI Gateway before deploy.
+# Catches: Python import errors, app boot failures, broken API routes,
+# tier auth wiring, and frontend build / Clerk / TypeScript errors.
+
+stages:
+  - backend-test
+  - frontend-build
+  - docker-build
+
+# ─── Backend: import + boot + endpoint smoke test ────────────────────
+backend:smoke:
+  stage: backend-test
+  image: python:3.11-slim-bookworm
+  variables:
+    USE_SQLITE: "true"
+    DB_PATH: "/tmp/ci_ai_gateway.db"
+    SECRET_KEY: "ci-test-secret"
+    ADMIN_EMAIL: "ci-admin@example.com"
+    ADMIN_PASSWORD: "ci-password"
+    NEXT_PORT: "3999"  # nothing listens here in CI; proxy path returns 503, which is fine
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends curl build-essential libffi-dev libssl-dev
+    - pip install --no-cache-dir --upgrade pip
+    - pip install --no-cache-dir -r requirements.txt
+  script:
+    - cd backend
+    # 1. Import the app — fails loudly on any import / syntax error
+    - python -c "from app.main import app; print('app imported OK')"
+    # 2. Boot the server in the background
+    - python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+    - sleep 6
+    # 3. Health check
+    - 'curl -fsS http://localhost:8000/health | grep -q ''"status":"ok"'' && echo "HEALTH OK"'
+    # 4. /v1/models should return an OpenAI-style list (empty data is fine: no providers yet)
+    - 'curl -fsS http://localhost:8000/v1/models | grep -q ''"object":"list"'' && echo "V1 MODELS OK"'
+    - 'curl -fsS http://localhost:8000/v2/models | grep -q ''"object":"list"'' && echo "V2 MODELS OK"'
+    - 'curl -fsS http://localhost:8000/v3/models | grep -q ''"object":"list"'' && echo "V3 MODELS OK"'
+    # 5. Unauthenticated chat completion must be rejected with 401 (auth wiring works)
+    - |
+      CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8000/v1/chat/completions \
+        -H "Content-Type: application/json" \
+        -d '{"model":"auto","messages":[{"role":"user","content":"hi"}]}')
+      echo "unauth /v1 chat -> $CODE"
+      test "$CODE" = "401"
+    # 6. Admin login with seeded admin returns a token + user with tier
+    - |
+      LOGIN=$(curl -s -X POST http://localhost:8000/admin/auth/login \
+        -H "Content-Type: application/json" \
+        -d '{"email":"ci-admin@example.com","password":"ci-password"}')
+      echo "login response: $LOGIN"
+      echo "$LOGIN" | grep -q 'access_token'
+    # 7. Clerk provision endpoint creates a v1 user with an API key
+    - |
+      PROV=$(curl -s -X POST http://localhost:8000/clerk/provision \
+        -H "Content-Type: application/json" \
+        -d '{"clerk_user_id":"ci_clerk_1","email":"ci-user@example.com","name":"CI User"}')
+      echo "provision response: $PROV"
+      echo "$PROV" | grep -q '"tier":"v1"'
+      echo "$PROV" | grep -q 'sk-'
+
+# ─── Frontend: install + build (catches Clerk / TypeScript errors) ──────────
+frontend:build:
+  stage: frontend-build
+  image: node:20-bookworm-slim
+  variables:
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_bWVhc3VyZWQtY2F0ZmlzaC03NS5jbGVyay5hY2NvdW50cy5kZXYk"
+    NEXT_PUBLIC_API_URL: ""
+  before_script:
+    - cd frontend
+  script:
+    - npm install
+    - npm run build
+  artifacts:
+    when: on_failure
+    paths:
+      - frontend/.next/
+    expire_in: 1 day
+
+# ─── Docker: confirm the production image actually builds ──────────────────
+docker:build:
+  stage: docker-build
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  script:
+    - docker build -t ai-gateway:ci .
+  rules:
+    # Only run the (slow) Docker build on the default branch and MRs to it
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
