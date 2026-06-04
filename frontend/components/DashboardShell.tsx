@@ -6,15 +6,15 @@ import { useAuth } from '@/lib/auth';
 import { useEffect, useState, ReactNode } from 'react';
 
 const NAV = [
-  { href: '/dashboard', label: 'Overview', glyph: '◐' },
-  { href: '/dashboard/providers', label: 'Providers', glyph: '◇' },
-  { href: '/dashboard/routing', label: 'Routing', glyph: '↯' },
-  { href: '/dashboard/models', label: 'Models', glyph: '◎' },
-  { href: '/dashboard/playground', label: 'Playground', glyph: '✦' },
-  { href: '/dashboard/logs', label: 'Request Logs', glyph: '≡' },
-  { href: '/dashboard/analytics', label: 'Analytics', glyph: '◓' },
-  { href: '/dashboard/users', label: 'Users & Keys', glyph: '◉' },
-  { href: '/dashboard/settings', label: 'Settings', glyph: '✧' },
+  { href: '/admin', label: 'Overview', glyph: '◐' },
+  { href: '/admin/providers', label: 'Providers', glyph: '◇' },
+  { href: '/admin/routing', label: 'Routing', glyph: '↯' },
+  { href: '/admin/models', label: 'Models', glyph: '◎' },
+  { href: '/admin/playground', label: 'Playground', glyph: '✦' },
+  { href: '/admin/logs', label: 'Request Logs', glyph: '≡' },
+  { href: '/admin/analytics', label: 'Analytics', glyph: '◓' },
+  { href: '/admin/users', label: 'Users & Keys', glyph: '◉' },
+  { href: '/admin/settings', label: 'Settings', glyph: '✧' },
 ];
 
 export default function DashboardShell({ children }: { children: ReactNode }) {
@@ -35,6 +35,11 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => { setMobileNavOpen(false); }, [pathname]);
+
+  function isActive(href: string) {
+    if (href === '/admin') return pathname === '/admin';
+    return pathname.startsWith(href);
+  }
 
   return (
     <div className="shell-grid">
@@ -87,7 +92,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
 
       <aside className="shell-aside">
         <div style={{ padding: '1.25rem 1.25rem 1rem', borderBottom: '1px solid var(--line)' }}>
-          <Link href="/dashboard" className="row" style={{ gap: '0.5rem', alignItems: 'baseline' }}>
+          <Link href="/admin" className="row" style={{ gap: '0.5rem', alignItems: 'baseline' }}>
             <span className="mono" style={{ fontSize: '1.25rem', letterSpacing: '-0.02em' }}>ai</span>
             <span className="mono" style={{ fontSize: '1.25rem', letterSpacing: '-0.02em', color: 'var(--fg-0)' }}>gateway</span>
           </Link>
@@ -101,7 +106,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
             Navigation
           </div>
           {NAV.map((item) => {
-            const active = pathname === item.href;
+            const active = isActive(item.href);
             return (
               <Link
                 key={item.href}
