@@ -1,55 +1,59 @@
-# ⚠️ Render Setup - One Manual Step Required
+# Render Setup Guide
 
-The latest commit switched from **Render Native Python** to **Docker runtime**.
-Render will not auto-switch your existing service's runtime — you need to do it
-manually **one time**.
+## Quick deploy
 
-## Quick steps (2 minutes)
+1. Push this repo to GitHub (or connect GitLab via mirror).
+2. Create a new **Web Service** on Render, select **Docker** runtime.
+3. Set the following environment variables in the Render dashboard:
 
-1. Open https://dashboard.render.com/web/YOUR-SERVICE-ID
-2. Click **"Settings"** in the left sidebar
-3. Scroll down to **"Runtime"** section
-4. Change **Runtime** from "Python" to **"Docker"**
-5. Set **Dockerfile Path** to: `./Dockerfile`
-6. Set **Docker Build Context Directory** to: `.` (root of repo)
-7. Click **"Save Changes"** at the bottom
-8. Render will auto-redeploy with the Docker build
+| Variable | Value | Notes |
+|---|---|---|
+| `ADMIN_EMAIL` | `saqibsarwar003@gmail.com` | Your admin login |
+| `ADMIN_PASSWORD` | `Biscoe@@3` | Your admin password |
+| `SECRET_KEY` | *(auto-generated)* | JWT signing key — Render generates this |
+| `USE_SQLITE` | `true` | Uses `/tmp/ai_gateway.db` on Render free tier |
+| `DATABASE_URL` | `sqlite+aiosqlite:////tmp/ai_gateway.db` | SQLite path |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | `pk_test_bWVhc3VyZWQtY2F0ZmlzaC03NS5jbGVyay5hY2NvdW50cy5kZXYk` | Safe to commit |
+| `CLERK_SECRET_KEY` | *(your rotated secret)* | **ROTATE THIS** — the old key was exposed. Get a new one from [clerk.com/dashboard](https://dashboard.clerk.com) |
 
-## What I changed
+> ⚠️ **Important:** The Clerk secret key that was shared in chat is compromised. Go to your Clerk dashboard, rotate it, and paste the new value into Render's env vars. Never commit it to the repo.
 
-| File | Change |
-|------|--------|
-| `Dockerfile` | Self-contained — uses prebuilt wheels (`--only-binary=:all:`), no Rust compile needed |
-| `render.yaml` | Docker runtime, root-level context, full env vars |
-| `requirements.txt` | Copied to root for Docker build context |
+## Architecture
 
-## Why this fixes the build failure
+- **Single Docker container** serves both the FastAPI backend and the Next.js static frontend.
+- **SQLite** is used on Render free tier (data resets on redeploy — upgrade to PostgreSQL for persistence).
+- **Health check** at `/health` — Render uses this to confirm the service is up.
 
-The screenshots show **"metadata-generation-failed"** and **"maturin failed"** —
-this is `pydantic-core` trying to compile a Rust extension in Render's read-only
-native Python build environment. With Docker we have a real read-write filesystem
-and prebuilt wheels install instantly.
+## API tiers
 
-## What should work after switch
+| Tier | Endpoint | Rate limit | Who gets it |
+|---|---|---|---|
+| v1 | `/v1/chat/completions` | 60 rpm | All users (default) |
+| v2 | `/v2/chat/completions` | 200 rpm | Admin upgrades users |
+| v3 | `/v3/chat/completions` | 600 rpm | Admin upgrades users |
 
-- ✅ Build completes in ~30 seconds (pip install from wheels)
-- ✅ `pydantic-core` installs cleanly (no Rust compile)
-- ✅ All deps install (FastAPI, SQLAlchemy, etc.)
-- ✅ App starts on `$PORT`
-- ✅ `/health` returns 200
-- ✅ Admin user auto-seeded on first request
+All tiers are fully OpenAI-compatible. Users call the endpoint matching their tier.
+Admin can upgrade any user's tier from the **Users & Keys** page in the admin panel.
 
-## If build still fails
+## User flows
 
-Check Render logs for the specific error and share it. The most common
-follow-up issue is the Docker build context — if Render can't find the
-Dockerfile, set **Docker Build Context Directory** to `/` and **Dockerfile
-Path** to `Dockerfile`.
+- **Public visitors** → land on home page, see Sign Up / Sign In (Clerk)
+- **After sign-up** → auto-provisioned with v1 tier + API key → redirected to `/keys`
+- **Admin** → logs in at `/login` with email/password → goes to `/admin`
+- **Admin upgrades user** → Users & Keys page → click ↑ upgrade next to any user
 
-## Alternative: Delete and recreate
+## Local development
 
-If you can't find the runtime setting, easiest fix:
-1. Delete the current `ai-gateway` web service in Render
-2. Go to https://dashboard.render.com/blueprint
-3. Connect the same GitHub repo
-4. Render will use the new `render.yaml` (Docker runtime)
+```bash
+# Backend
+cd backend
+pip install -r ../requirements.txt
+uvicorn app.main:app --reload --port 8000
+
+# Frontend (separate terminal)
+cd frontend
+npm install
+npm run dev
+```
+
+Copy `frontend/.env.example` to `frontend/.env.local` and fill in your values.

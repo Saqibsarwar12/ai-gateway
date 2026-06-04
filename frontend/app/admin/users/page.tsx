@@ -14,13 +14,16 @@ import {
 } from '@/components/UI';
 import type { User } from '@/lib/api';
 
+type UserWithTier = User & { tier?: string };
+
 export default function UsersPage() {
   const { token, apiKey, user: me } = useAuth();
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<UserWithTier[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [editingTier, setEditingTier] = useState<UserWithTier | null>(null);
 
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -44,8 +47,8 @@ export default function UsersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, apiKey]);
 
-  async function toggleActive(u: User) {
-    await fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/admin/users/${u.id}`, {
+  async function toggleActive(u: UserWithTier) {
+    await fetch(`/admin/users/${u.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify({ is_active: !u.is_active }),
@@ -53,12 +56,19 @@ export default function UsersPage() {
     load();
   }
 
-  async function remove(u: User) {
+  async function remove(u: UserWithTier) {
     if (!confirm(`Delete user ${u.email}? This cannot be undone.`)) return;
-    await fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/admin/users/${u.id}`, {
-      method: 'DELETE',
-      headers,
+    await fetch(`/admin/users/${u.id}`, { method: 'DELETE', headers });
+    load();
+  }
+
+  async function updateTier(u: UserWithTier, tier: string) {
+    await fetch(`/admin/users/${u.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify({ tier }),
     });
+    setEditingTier(null);
     load();
   }
 
@@ -67,6 +77,12 @@ export default function UsersPage() {
     setCopiedKey(id);
     setTimeout(() => setCopiedKey(null), 1500);
   }
+
+  const tierVariant = (tier?: string) => {
+    if (tier === 'v3') return 'ok';
+    if (tier === 'v2') return 'default';
+    return 'mute';
+  };
 
   if (loading) return <Loader label="Loading users" />;
   if (error) return <ErrorState error={error} onRetry={load} />;
@@ -98,6 +114,7 @@ export default function UsersPage() {
                 <tr>
                   <th>User</th>
                   <th>Role</th>
+                  <th>Tier</th>
                   <th>Credits</th>
                   <th>API key</th>
                   <th>Status</th>
@@ -113,6 +130,20 @@ export default function UsersPage() {
                     </td>
                     <td>
                       <Badge variant={u.role === 'admin' ? 'ok' : 'default'}>{u.role}</Badge>
+                    </td>
+                    <td>
+                      <div className="row" style={{ gap: '0.375rem', alignItems: 'center' }}>
+                        <Badge variant={tierVariant(u.tier)}>{u.tier || 'v1'}</Badge>
+                        {me?.role === 'admin' && u.id !== me.id && (
+                          <button
+                            onClick={() => setEditingTier(u)}
+                            className="text-xs dim hover-fg mono"
+                            style={{ padding: '0.125rem 0.375rem', border: '1px solid var(--line)', borderRadius: 2 }}
+                          >
+                            ↑ upgrade
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td className="mono text-sm">{(u.credits ?? 0).toLocaleString()}</td>
                     <td>
@@ -156,6 +187,15 @@ export default function UsersPage() {
         )}
       </Card>
 
+      {/* Tier upgrade modal */}
+      {editingTier && (
+        <TierModal
+          user={editingTier}
+          onClose={() => setEditingTier(null)}
+          onSave={(tier) => updateTier(editingTier, tier)}
+        />
+      )}
+
       {showNew && (
         <NewUserForm
           headers={headers}
@@ -167,6 +207,53 @@ export default function UsersPage() {
         />
       )}
     </div>
+  );
+}
+
+function TierModal({
+  user,
+  onClose,
+  onSave,
+}: {
+  user: UserWithTier;
+  onClose: () => void;
+  onSave: (tier: string) => void;
+}) {
+  const [tier, setTier] = useState(user.tier || 'v1');
+  return (
+    <Modal open title={`Change tier · ${user.email}`} onClose={onClose}>
+      <div className="stack">
+        <p className="text-sm muted">
+          Tier controls which API version the user can access and their rate limits.
+        </p>
+        <div className="grid-3" style={{ gap: '0.5rem' }}>
+          {['v1', 'v2', 'v3'].map((t) => (
+            <button
+              key={t}
+              onClick={() => setTier(t)}
+              className={`card text-center mono text-sm ${tier === t ? 'active' : ''}`}
+              style={{
+                padding: '0.75rem',
+                border: `1px solid ${tier === t ? 'var(--fg-0)' : 'var(--line)'}`,
+                background: tier === t ? 'var(--bg-2)' : 'transparent',
+                cursor: 'pointer',
+              }}
+            >
+              <div style={{ fontSize: '1.25rem', marginBottom: '0.25rem' }}>{t}</div>
+              <div className="text-xs dim">
+                {t === 'v1' && '60 rpm · 100 credits'}
+                {t === 'v2' && '200 rpm · 500 credits'}
+                {t === 'v3' && '600 rpm · 2000 credits'}
+              </div>
+            </button>
+          ))}
+        </div>
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={() => onSave(tier)}>Save tier</Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -183,6 +270,7 @@ function NewUserForm({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('user');
+  const [tier, setTier] = useState('v1');
   const [credits, setCredits] = useState('100');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -195,7 +283,7 @@ function NewUserForm({
       const r = await fetch('/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({ name, email, password, role, credits: parseInt(credits) }),
+        body: JSON.stringify({ name, email, password, role, tier, credits: parseInt(credits) }),
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
@@ -226,8 +314,18 @@ function NewUserForm({
               { value: 'readonly', label: 'Read-only' },
             ]}
           />
-          <Input label="Credits" type="number" value={credits} onChange={setCredits} />
+          <Select
+            label="Tier"
+            value={tier}
+            onChange={setTier}
+            options={[
+              { value: 'v1', label: 'v1 — 60 rpm' },
+              { value: 'v2', label: 'v2 — 200 rpm' },
+              { value: 'v3', label: 'v3 — 600 rpm' },
+            ]}
+          />
         </div>
+        <Input label="Credits" type="number" value={credits} onChange={setCredits} />
         {error && <div className="error-box mono text-sm wrap">{error}</div>}
         <div className="row" style={{ justifyContent: 'flex-end' }}>
           <Button variant="ghost" onClick={onClose}>
