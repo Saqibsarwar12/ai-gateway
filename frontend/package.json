@@ -12,6 +12,7 @@
     "next": "14.2.15",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "@clerk/nextjs": "^5.7.5",
     "framer-motion": "11.11.7",
     "recharts": "2.13.0",
     "lucide-react": "0.453.0",

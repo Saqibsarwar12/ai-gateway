@@ -19,7 +19,11 @@ from app.api.v1 import admin
 from app.api.gateway import make_openai_router
 from app.api.clerk import router as clerk_router
 
-STATIC_DIR = Path(__file__).parent.parent / "static"
+# Next.js build output: try .next/standalone first, fall back to legacy static/
+BACKEND_DIR = Path(__file__).parent.parent
+STATIC_DIR = BACKEND_DIR / "static"
+NEXT_STANDALONE = BACKEND_DIR.parent / "frontend" / ".next" / "standalone"
+NEXT_STATIC_OUT = BACKEND_DIR.parent / "frontend" / "out"
 
 
 @asynccontextmanager
@@ -47,7 +51,7 @@ async def lifespan(app: FastAPI):
                 email=settings.ADMIN_EMAIL,
                 hashed_password=hash_password(settings.ADMIN_PASSWORD),
                 role="admin",
-                tier="v3",  # Admin gets full access
+                tier="v3",
                 api_key=api_key,
                 credits=999999999,
                 is_active=True,
@@ -57,18 +61,12 @@ async def lifespan(app: FastAPI):
             print(f"Admin created: {settings.ADMIN_EMAIL} / API Key: {api_key}")
         else:
             # Ensure existing admin has v3 tier
-            if not admin_user.tier or admin_user.tier != "v3":
+            if not getattr(admin_user, 'tier', None) or admin_user.tier != "v3":
                 admin_user.tier = "v3"
                 await session.commit()
 
     yield
-
-    # Shutdown
-    from app.db.session import redis_client
-    try:
-        await redis_client.aclose()
-    except Exception:
-        pass
+    # Shutdown — nothing to close (in-memory rate limiter, SQLite)
 
 
 app = FastAPI(
@@ -106,27 +104,35 @@ async def health():
     return {"status": "ok", "version": settings.VERSION}
 
 
-# ─── Serve _next assets (immutable) ──────────────────────────────────
-if STATIC_DIR.exists():
-    app.mount("/_next", StaticFiles(directory=str(STATIC_DIR / "_next")), name="next-assets")
+# ─── Serve Next.js static assets (\_next) ───────────────────────────────
+# Try the Next.js 'out' (static export) directory first, then legacy static/
+_serve_dir = None
+if NEXT_STATIC_OUT.exists():
+    _serve_dir = NEXT_STATIC_OUT
+elif STATIC_DIR.exists():
+    _serve_dir = STATIC_DIR
+
+if _serve_dir and (_serve_dir / "_next").exists():
+    app.mount("/_next", StaticFiles(directory=str(_serve_dir / "_next")), name="next-assets")
 
 
 # ─── SPA catch-all ────────────────────────────────────────────────────
 @app.api_route("/{path:path}", methods=["GET"], include_in_schema=False)
 async def serve_spa(path: str):
     """Serve the Next.js static export as an SPA."""
-    if not STATIC_DIR.exists():
+    serve_dir = _serve_dir
+    if not serve_dir:
         return HTMLResponse("Dashboard not built", status_code=503)
 
-    candidate = STATIC_DIR / path
+    candidate = serve_dir / path
     if candidate.is_file():
         return FileResponse(str(candidate))
 
-    candidate = STATIC_DIR / path / "index.html"
+    candidate = serve_dir / path / "index.html"
     if candidate.is_file():
         return FileResponse(str(candidate))
 
-    index = STATIC_DIR / "index.html"
+    index = serve_dir / "index.html"
     if index.is_file():
         return FileResponse(str(index))
 
