@@ -12,24 +12,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
 
-# Ensure the app directory is in the path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.core.config import settings
-from app.api.v1 import openai, admin
+from app.api.v1 import admin
+from app.api.gateway import make_openai_router
+from app.api.clerk import router as clerk_router
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create tables
+    # Startup: create / migrate tables
     from app.db.models import Base
     from app.db.session import engine
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Seed default admin if none exists
+    # Seed default admin
     from app.db.session import async_session_maker
     from app.db.models import User
     from app.core.auth import hash_password, create_api_key
@@ -37,7 +38,8 @@ async def lifespan(app: FastAPI):
 
     async with async_session_maker() as session:
         result = await session.execute(select(User).where(User.email == settings.ADMIN_EMAIL))
-        if not result.scalar_one_or_none():
+        admin_user = result.scalar_one_or_none()
+        if not admin_user:
             api_key = create_api_key()
             admin_user = User(
                 id="admin-001",
@@ -45,6 +47,7 @@ async def lifespan(app: FastAPI):
                 email=settings.ADMIN_EMAIL,
                 hashed_password=hash_password(settings.ADMIN_PASSWORD),
                 role="admin",
+                tier="v3",  # Admin gets full access
                 api_key=api_key,
                 credits=999999999,
                 is_active=True,
@@ -52,6 +55,11 @@ async def lifespan(app: FastAPI):
             session.add(admin_user)
             await session.commit()
             print(f"Admin created: {settings.ADMIN_EMAIL} / API Key: {api_key}")
+        else:
+            # Ensure existing admin has v3 tier
+            if not admin_user.tier or admin_user.tier != "v3":
+                admin_user.tier = "v3"
+                await session.commit()
 
     yield
 
@@ -66,7 +74,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.VERSION,
-    description="Production AI Gateway — OpenAI-compatible API with provider routing",
+    description="Production AI Gateway — OpenAI-compatible API with provider routing, tiered access, and Clerk auth",
     lifespan=lifespan,
 )
 
@@ -80,8 +88,17 @@ app.add_middleware(
 )
 
 # ─── API Routes (MUST come before static/splat) ────────────────────────
-app.include_router(openai.router, prefix="/v1", tags=["AI Gateway"])
+
+# Tiered OpenAI-compatible endpoints
+app.include_router(make_openai_router("v1"), prefix="/v1", tags=["AI Gateway v1"])
+app.include_router(make_openai_router("v2"), prefix="/v2", tags=["AI Gateway v2"])
+app.include_router(make_openai_router("v3"), prefix="/v3", tags=["AI Gateway v3"])
+
+# Admin panel API
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
+
+# Clerk provisioning
+app.include_router(clerk_router, prefix="/clerk", tags=["Clerk"])
 
 
 @app.get("/health")
@@ -89,34 +106,26 @@ async def health():
     return {"status": "ok", "version": settings.VERSION}
 
 
-# ─── Serve _next assets (immutable) ────────────────────────────────────
+# ─── Serve _next assets (immutable) ──────────────────────────────────
 if STATIC_DIR.exists():
     app.mount("/_next", StaticFiles(directory=str(STATIC_DIR / "_next")), name="next-assets")
 
 
-# ─── SPA catch-all: serve the matching HTML file, or index.html ────────
+# ─── SPA catch-all ────────────────────────────────────────────────────
 @app.api_route("/{path:path}", methods=["GET"], include_in_schema=False)
 async def serve_spa(path: str):
-    """Serve the Next.js static export as an SPA.
-
-    For any GET request that isn't an API route, try to find a matching
-    HTML file in the static/ directory.  If none exists, fall back to
-    index.html (SPA client-side routing).
-    """
+    """Serve the Next.js static export as an SPA."""
     if not STATIC_DIR.exists():
         return HTMLResponse("Dashboard not built", status_code=503)
 
-    # Try exact file match (e.g. /dashboard/index.html)
     candidate = STATIC_DIR / path
     if candidate.is_file():
         return FileResponse(str(candidate))
 
-    # Try directory index (e.g. /dashboard -> /dashboard/index.html)
     candidate = STATIC_DIR / path / "index.html"
     if candidate.is_file():
         return FileResponse(str(candidate))
 
-    # Fallback: serve index.html for SPA client-side routing
     index = STATIC_DIR / "index.html"
     if index.is_file():
         return FileResponse(str(index))
