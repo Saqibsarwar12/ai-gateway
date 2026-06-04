@@ -13,11 +13,11 @@ class Provider(Base):
 
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
-    provider_type = Column(String, nullable=False)  # openai | anthropic | gemini | deepseek | ollama | custom
+    provider_type = Column(String, nullable=False)
     base_url = Column(String, nullable=False)
     api_key = Column(String)
     enabled = Column(Boolean, default=True)
-    priority = Column(Integer, default=100)  # Lower = higher priority
+    priority = Column(Integer, default=100)
     max_rpm = Column(Integer, default=1000)
     max_tpm = Column(Integer, default=100000)
     current_rpm = Column(Integer, default=0)
@@ -27,7 +27,7 @@ class Provider(Base):
     is_healthy = Column(Boolean, default=True)
     requires_proxy = Column(Boolean, default=False)
     proxy_url = Column(String)
-    models = Column(JSON, default=list)  # ["gpt-4", "gpt-3.5-turbo"]
+    models = Column(JSON, default=list)
     extra_config = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -39,15 +39,17 @@ class Model(Base):
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
     provider_id = Column(String)
-    model_id = Column(String, nullable=False)  # Provider's internal model ID
-    mode = Column(String, default="chat")  # chat | completion | embedding
-    input_cost_per_1m = Column(Float, default=0.0)  # $/1M input tokens
-    output_cost_per_1m = Column(Float, default=0.0)  # $/1M output tokens
+    model_id = Column(String, nullable=False)
+    mode = Column(String, default="chat")
+    input_cost_per_1m = Column(Float, default=0.0)
+    output_cost_per_1m = Column(Float, default=0.0)
     context_window = Column(Integer, default=8192)
     supports_functions = Column(Boolean, default=False)
     supports_vision = Column(Boolean, default=False)
     enabled = Column(Boolean, default=True)
     is_active = Column(Boolean, default=True)
+    # Minimum tier required to use this model: v1 | v2 | v3
+    min_tier = Column(String, default="v1")
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -56,10 +58,10 @@ class RoutingRule(Base):
 
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
-    strategy = Column(String, nullable=False)  # fallback | cost | latency | round_robin | weighted | priority
-    model_pattern = Column(String)  # e.g. "gpt-4*" or "*"
-    provider_order = Column(JSON, default=list)  # ["openai", "anthropic", "deepseek"]
-    weights = Column(JSON, default=dict)  # {"openai": 0.5, "anthropic": 0.5}
+    strategy = Column(String, nullable=False)
+    model_pattern = Column(String)
+    provider_order = Column(JSON, default=list)
+    weights = Column(JSON, default=dict)
     is_active = Column(Boolean, default=True)
     priority = Column(Integer, default=0)
     fallback_enabled = Column(Boolean, default=True)
@@ -77,9 +79,13 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
     hashed_password = Column(String)
     role = Column(String, default="user")  # admin | user | readonly
+    # API tier: v1 (default) | v2 | v3
+    tier = Column(String, default="v1")
     credits = Column(Integer, default=100)
     is_active = Column(Boolean, default=True)
     api_key = Column(String, unique=True)
+    # Clerk integration: store Clerk user ID for SSO users
+    clerk_user_id = Column(String, unique=True, nullable=True)
     extra_metadata = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -137,8 +143,8 @@ class UsageStats(Base):
     total_output_tokens = Column(Integer, default=0)
     total_cost_usd = Column(Float, default=0.0)
     avg_latency_ms = Column(Float, default=0.0)
-    period = Column(String)  # daily | monthly
-    period_date = Column(String)  # "2026-05-29"
+    period = Column(String)
+    period_date = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

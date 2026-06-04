@@ -4,7 +4,6 @@ from typing import Optional, Any, List, Dict
 from datetime import datetime
 
 
-# Make all responses ORM-friendly
 RESPONSE_CONFIG = ConfigDict(from_attributes=True)
 
 
@@ -151,6 +150,7 @@ class UserCreate(BaseModel):
     email: str
     password: str
     role: Optional[str] = "user"
+    tier: Optional[str] = "v1"
     credits: int = 100
     extra_metadata: Optional[Dict[str, Any]] = {}
 
@@ -160,6 +160,7 @@ class UserResponse(BaseModel):
     name: str
     email: str
     role: str
+    tier: Optional[str] = "v1"
     credits: int
     is_active: bool
     api_key: Optional[str] = None
@@ -195,6 +196,10 @@ class UserUpdate(BaseModel):
     email: Optional[str] = None
     password: Optional[str] = None
     is_admin: Optional[bool] = None
+    tier: Optional[str] = None
+    credits: Optional[int] = None
+    is_active: Optional[bool] = None
+    role: Optional[str] = None
 
     class Config:
         extra = "allow"

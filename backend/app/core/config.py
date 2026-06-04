@@ -14,5 +14,23 @@ class Settings:
     ALGORITHM = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
+    # Clerk integration
+    CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
+    CLERK_PUBLISHABLE_KEY = os.getenv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "")
+
+    # Tier rate limits (requests per minute)
+    TIER_RATE_LIMITS = {
+        "v1": 60,
+        "v2": 200,
+        "v3": 600,
+    }
+
+    # Tier credit multipliers (v2 gets 5x, v3 gets 20x default credits)
+    TIER_CREDIT_GRANTS = {
+        "v1": 100,
+        "v2": 500,
+        "v3": 2000,
+    }
+
 
 settings = Settings()
