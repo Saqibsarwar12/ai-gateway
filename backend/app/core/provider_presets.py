@@ -268,3 +268,13 @@ def get_preset(preset_id: str) -> ProviderPreset | None:
         if p["id"] == preset_id:
             return p
     return None
+
+
+def list_presets() -> list[ProviderPreset]:
+    return list(PROVIDER_PRESETS)
+
+
+def normalize_base_url(url: str) -> str:
+    """Strip trailing slashes and ensure base URL has no /v1 suffix double-up."""
+    u = (url or "").strip().rstrip("/")
+    return u

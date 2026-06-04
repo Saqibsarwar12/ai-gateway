@@ -515,7 +515,7 @@ async def list_provider_presets(_: dict = Depends(require_user)):
     Each preset is a dict with id, label, base_url, provider_type, and a
     short hint. The frontend uses this to populate the "add provider" form.
     """
-    from app.core.provider_presets import get_presets
+    from app.core.provider_presets import list_presets as get_presets
     return get_presets()
 
 
@@ -535,9 +535,9 @@ async def discover_models(body: DiscoverBody, _: dict = Depends(require_user)):
     custom URL and we'll try to fetch /models and /chat/completions.
     """
     import httpx
-    from app.core.provider_presets import normalize_base_url, PRESETS
+    from app.core.provider_presets import normalize_base_url, PROVIDER_PRESETS as PRESETS
 
-    base = normalize_base_url(body.base_url, body.provider_type)
+    base = normalize_base_url(body.base_url)
 
     headers = {"Content-Type": "application/json"}
     if body.api_key:
@@ -630,7 +630,7 @@ async def test_provider_key(body: TestKeyBody, _: dict = Depends(require_user)):
     import httpx, time
     from app.core.provider_presets import normalize_base_url
 
-    base = normalize_base_url(body.base_url, body.provider_type)
+    base = normalize_base_url(body.base_url)
     if not body.model:
         return {"ok": False, "error": "No model specified"}
 
