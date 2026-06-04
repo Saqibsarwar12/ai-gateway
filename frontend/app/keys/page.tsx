@@ -43,7 +43,7 @@ export default function KeysPage() {
             <span className="font-mono text-sm tracking-wider text-[#d4a574]">gateway</span>
           </Link>
           <div className="row" style={{ gap: '0.75rem' }}>
-            {user.role === 'admin' && <Link href="/dashboard" className="font-mono text-[10px] text-[#8a8275] hover:text-[#f5f1e8] tracking-wider uppercase">→ Admin</Link>}
+            {user.role === 'admin' && <Link href="/admin" className="font-mono text-[10px] text-[#8a8275] hover:text-[#f5f1e8] tracking-wider uppercase">→ Admin</Link>}
             <span className="font-mono text-[10px] text-[#6b6358]">{user.email}</span>
             <button onClick={() => { logout(); window.location.href = '/'; }} className="font-mono text-[10px] text-[#6b6358] hover:text-[#f5f1e8] tracking-wider uppercase">Logout</button>
           </div>

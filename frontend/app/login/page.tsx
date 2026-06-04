@@ -20,7 +20,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(email, password);
-      router.push('/dashboard');
+      router.push('/admin');
     } catch (err: any) {
       setError(err.message || 'Invalid credentials');
     } finally {
@@ -132,7 +132,7 @@ export default function LoginPage() {
                 <span className="row" style={{ gap: '0.5rem', justifyContent: 'center' }}>
                   <Spinner size={12} /> Authenticating…
                 </span>
-              ) : '→ Enter dashboard'}
+              ) : '→ Enter admin panel'}
             </Button>
           </form>
 

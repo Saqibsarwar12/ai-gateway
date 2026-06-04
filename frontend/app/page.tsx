@@ -26,7 +26,7 @@ export default function HomePage() {
           <div className="flex items-center gap-6">
             <a href="/docs" target="_blank" className="font-mono text-xs text-[#8a8275] hover:text-[#f5f1e8] tracking-wider uppercase">API</a>
             {sess ? (
-              <Link href={sess.role === 'admin' ? '/dashboard' : '/keys'} className="font-mono text-xs px-4 py-1.5 bg-[#d4a574] text-[#0a0908] rounded-sm tracking-wider uppercase hover:bg-[#c89960]">
+              <Link href={sess.role === 'admin' ? '/admin' : '/keys'} className="font-mono text-xs px-4 py-1.5 bg-[#d4a574] text-[#0a0908] rounded-sm tracking-wider uppercase hover:bg-[#c89960]">
                 → Continue
               </Link>
             ) : (
@@ -51,8 +51,8 @@ export default function HomePage() {
         </p>
 
         <div className="mt-12 flex flex-wrap gap-4">
-          <Link href={sess ? (sess.role === 'admin' ? '/dashboard' : '/keys') : '/register'} className="font-mono text-sm px-6 py-3 bg-[#d4a574] text-[#0a0908] rounded-sm tracking-wider uppercase hover:bg-[#c89960]">
-            {sess ? '→ Open my dashboard' : '→ Get your API key'}
+          <Link href={sess ? (sess.role === 'admin' ? '/admin' : '/keys') : '/register'} className="font-mono text-sm px-6 py-3 bg-[#d4a574] text-[#0a0908] rounded-sm tracking-wider uppercase hover:bg-[#c89960]">
+            {sess ? '→ Open admin panel' : '→ Get your API key'}
           </Link>
           <a href="/docs" target="_blank" className="font-mono text-sm px-6 py-3 bg-[#1c1c1a] text-[#f5f1e8] border border-[#2a2820] rounded-sm tracking-wider uppercase hover:bg-[#26241f]">
             View API docs ↗
