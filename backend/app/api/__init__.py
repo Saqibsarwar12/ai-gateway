@@ -1,1 +1,1 @@
-from app.api.v1 import openai, admin
+from app.api.v1 import admin
