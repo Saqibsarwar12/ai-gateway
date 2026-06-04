@@ -13,7 +13,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
-  const API_BASE = 'https://saki-gateway.indevs.in';
+  const API_BASE = '';
 
   async function changePwd(e: React.FormEvent) {
     e.preventDefault();

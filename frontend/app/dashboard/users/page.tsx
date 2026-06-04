@@ -30,7 +30,7 @@ export default function UsersPage() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch('https://saki-gateway.indevs.in/admin/users', { headers });
+      const r = await fetch('/admin/users', { headers });
       if (!r.ok) throw new Error(`${r.status}`);
       setUsers(await r.json());
     } catch (e: any) {
@@ -45,7 +45,7 @@ export default function UsersPage() {
   }, [token, apiKey]);
 
   async function toggleActive(u: User) {
-    await fetch(`https://saki-gateway.indevs.in/admin/users/${u.id}`, {
+    await fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/admin/users/${u.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify({ is_active: !u.is_active }),
@@ -55,7 +55,7 @@ export default function UsersPage() {
 
   async function remove(u: User) {
     if (!confirm(`Delete user ${u.email}? This cannot be undone.`)) return;
-    await fetch(`https://saki-gateway.indevs.in/admin/users/${u.id}`, {
+    await fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/admin/users/${u.id}`, {
       method: 'DELETE',
       headers,
     });
@@ -192,7 +192,7 @@ function NewUserForm({
     setSaving(true);
     setError(null);
     try {
-      const r = await fetch('https://saki-gateway.indevs.in/admin/users', {
+      const r = await fetch('/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
         body: JSON.stringify({ name, email, password, role, credits: parseInt(credits) }),

@@ -1,5 +1,5 @@
 // Live API client for AI Gateway backend
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saki-gateway.indevs.in';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 const TOKEN_KEY = 'ai_gateway_token';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────

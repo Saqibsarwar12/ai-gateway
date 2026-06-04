@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { Button, Input } from '@/components/UI';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saki-gateway.indevs.in';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
 export default function RegisterPage() {
   const router = useRouter();

@@ -21,7 +21,7 @@ export default function LogsPage() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch('https://saki-gateway.indevs.in/admin/logs?limit=200', { headers });
+      const r = await fetch('/admin/logs?limit=200', { headers });
       if (!r.ok) throw new Error(`${r.status}`);
       setLogs(await r.json());
     } catch (e: any) {

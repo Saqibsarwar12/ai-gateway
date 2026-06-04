@@ -30,7 +30,7 @@ export default function PlaygroundPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch('https://saki-gateway.indevs.in/v1/models')
+    fetch('/v1/models')
       .then((r) => r.json())
       .then((j) => {
         const list: OpenAIModel[] = j.data || [];
@@ -58,7 +58,7 @@ export default function PlaygroundPage() {
       if (token) headers['Authorization'] = `Bearer ${token}`;
       else if (apiKey) headers['X-API-Key'] = apiKey;
       const sysMsgs: Msg[] = system ? [{ role: 'system', content: system }] : [];
-      const r = await fetch('https://saki-gateway.indevs.in/v1/chat/completions', {
+      const r = await fetch('/v1/chat/completions', {
         method: 'POST',
         headers,
         body: JSON.stringify({

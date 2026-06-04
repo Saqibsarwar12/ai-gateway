@@ -40,8 +40,8 @@ export default function RoutingPage() {
     setError(null);
     try {
       const [r, p] = await Promise.all([
-        fetch('https://saki-gateway.indevs.in/admin/routing', { headers }).then((r) => (r.ok ? r.json() : [])),
-        fetch('https://saki-gateway.indevs.in/admin/providers', { headers }).then((r) => (r.ok ? r.json() : [])),
+        fetch('/admin/routing', { headers }).then((r) => (r.ok ? r.json() : [])),
+        fetch('/admin/providers', { headers }).then((r) => (r.ok ? r.json() : [])),
       ]);
       setRules(r);
       setProviders(p);
@@ -57,7 +57,7 @@ export default function RoutingPage() {
   }, [token, apiKey]);
 
   async function toggle(r: RoutingRule) {
-    await fetch(`https://saki-gateway.indevs.in/admin/routing/${r.id}`, {
+    await fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/admin/routing/${r.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify({ is_active: !r.is_active }),
@@ -67,7 +67,7 @@ export default function RoutingPage() {
 
   async function remove(r: RoutingRule) {
     if (!confirm(`Delete routing rule "${r.name}"?`)) return;
-    await fetch(`https://saki-gateway.indevs.in/admin/routing/${r.id}`, { method: 'DELETE', headers });
+    await fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/admin/routing/${r.id}`, { method: 'DELETE', headers });
     load();
   }
 
@@ -223,8 +223,8 @@ function RoutingForm({
         is_active: active,
       };
       const url = initial
-        ? `https://saki-gateway.indevs.in/admin/routing/${initial.id}`
-        : 'https://saki-gateway.indevs.in/admin/routing';
+        ? `${typeof window !== 'undefined' ? window.location.origin : ''}/admin/routing/${initial.id}`
+        : '/admin/routing';
       const method = initial ? 'PUT' : 'POST';
       const r = await fetch(url, {
         method,

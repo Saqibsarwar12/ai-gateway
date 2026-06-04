@@ -26,10 +26,10 @@ export default function OverviewPage() {
     if (token) headers['Authorization'] = `Bearer ${token}`;
     else if (apiKey) headers['X-API-Key'] = apiKey;
     Promise.all([
-      fetch('https://saki-gateway.indevs.in/admin/analytics?days=7', { headers }).then((r) =>
+      fetch('/admin/analytics?days=7', { headers }).then((r) =>
         r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`))
       ),
-      fetch('https://saki-gateway.indevs.in/admin/providers', { headers }).then((r) =>
+      fetch('/admin/providers', { headers }).then((r) =>
         r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`))
       ),
     ])
@@ -92,10 +92,10 @@ export default function OverviewPage() {
         </Card>
 
         <Card title="Base URL" eyebrow="How to call the gateway">
-          <pre className="code wrap">https://saki-gateway.indevs.in/v1</pre>
+          <pre className="code wrap">/v1</pre>
           <p className="text-sm muted" style={{ marginTop: '0.5rem' }}>Use any OpenAI-compatible client:</p>
           <pre className="code wrap">
-{`curl https://saki-gateway.indevs.in/v1/chat/completions \\
+{`curl /v1/chat/completions \\
   -H "Authorization: Bearer $AI_GATEWAY_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"model":"<model>","messages":[{"role":"user","content":"hi"}]}'`}

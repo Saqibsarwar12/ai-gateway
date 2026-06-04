@@ -32,11 +32,11 @@ export default function AnalyticsPage() {
     setError(null);
     try {
       const [s, l] = await Promise.all([
-        fetch(`https://saki-gateway.indevs.in/admin/analytics?days=${days}`, { headers }).then((r) => {
+        fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/admin/analytics?days=${days}`, { headers }).then((r) => {
           if (!r.ok) throw new Error(`${r.status}`);
           return r.json();
         }),
-        fetch('https://saki-gateway.indevs.in/admin/logs?limit=500', { headers }).then((r) => (r.ok ? r.json() : [])),
+        fetch('/admin/logs?limit=500', { headers }).then((r) => (r.ok ? r.json() : [])),
       ]);
       setStats(s);
       setLogs(l);

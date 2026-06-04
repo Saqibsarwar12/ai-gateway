@@ -3,7 +3,7 @@ import { useAuth } from '@/lib/auth';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saki-gateway.indevs.in';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
 export default function KeysPage() {
   const { user, token, logout } = useAuth();
