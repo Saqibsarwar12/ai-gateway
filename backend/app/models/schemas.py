@@ -195,7 +195,7 @@ class LoginResponse(BaseModel):
 class UserUpdate(BaseModel):
     email: Optional[str] = None
     password: Optional[str] = None
-    is_admin: Optional[bool] = None
+    name: Optional[str] = None
     tier: Optional[str] = None
     credits: Optional[int] = None
     is_active: Optional[bool] = None
