@@ -1,13 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // NOTE: 'output: export' is removed because Clerk middleware requires
-  // Next.js server-side rendering (Edge runtime). The frontend is now
-  // served by Next.js standalone server, not as a static export.
-  // The Dockerfile builds and runs 'next start' instead of serving static files.
+  // standalone output: Next.js bundles everything needed to run with 'node server.js'
+  // This is required for Clerk middleware (Edge runtime) to work on Render.
+  output: 'standalone',
   reactStrictMode: true,
   images: { unoptimized: true },
   trailingSlash: false,
-  // Allow Clerk to work in the Edge runtime
-  experimental: {},
 };
 export default nextConfig;

@@ -1,6 +1,8 @@
 """FastAPI application entry point — AI Gateway Platform.
 
-Serves BOTH the API and the dashboard UI from one server.
+In production (Render), FastAPI runs on port 8000 and Next.js runs on port 3001.
+FastAPI handles all /v1, /v2, /v3, /admin, /clerk, /health API routes.
+All other GET requests are proxied to the Next.js server on port 3001.
 """
 import os
 import sys
@@ -9,8 +11,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import Response
+import httpx
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -19,11 +21,8 @@ from app.api.v1 import admin
 from app.api.gateway import make_openai_router
 from app.api.clerk import router as clerk_router
 
-# Next.js build output: try .next/standalone first, fall back to legacy static/
-BACKEND_DIR = Path(__file__).parent.parent
-STATIC_DIR = BACKEND_DIR / "static"
-NEXT_STANDALONE = BACKEND_DIR.parent / "frontend" / ".next" / "standalone"
-NEXT_STATIC_OUT = BACKEND_DIR.parent / "frontend" / "out"
+NEXT_PORT = int(os.getenv("NEXT_PORT", "3001"))
+NEXT_BASE = f"http://localhost:{NEXT_PORT}"
 
 
 @asynccontextmanager
@@ -60,13 +59,11 @@ async def lifespan(app: FastAPI):
             await session.commit()
             print(f"Admin created: {settings.ADMIN_EMAIL} / API Key: {api_key}")
         else:
-            # Ensure existing admin has v3 tier
             if not getattr(admin_user, 'tier', None) or admin_user.tier != "v3":
                 admin_user.tier = "v3"
                 await session.commit()
 
     yield
-    # Shutdown — nothing to close (in-memory rate limiter, SQLite)
 
 
 app = FastAPI(
@@ -76,7 +73,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -85,17 +81,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── API Routes (MUST come before static/splat) ────────────────────────
-
-# Tiered OpenAI-compatible endpoints
+# ─── API Routes ────────────────────────────────────────────────────
 app.include_router(make_openai_router("v1"), prefix="/v1", tags=["AI Gateway v1"])
 app.include_router(make_openai_router("v2"), prefix="/v2", tags=["AI Gateway v2"])
 app.include_router(make_openai_router("v3"), prefix="/v3", tags=["AI Gateway v3"])
-
-# Admin panel API
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
-
-# Clerk provisioning
 app.include_router(clerk_router, prefix="/clerk", tags=["Clerk"])
 
 
@@ -104,36 +94,29 @@ async def health():
     return {"status": "ok", "version": settings.VERSION}
 
 
-# ─── Serve Next.js static assets (\_next) ───────────────────────────────
-# Try the Next.js 'out' (static export) directory first, then legacy static/
-_serve_dir = None
-if NEXT_STATIC_OUT.exists():
-    _serve_dir = NEXT_STATIC_OUT
-elif STATIC_DIR.exists():
-    _serve_dir = STATIC_DIR
-
-if _serve_dir and (_serve_dir / "_next").exists():
-    app.mount("/_next", StaticFiles(directory=str(_serve_dir / "_next")), name="next-assets")
-
-
-# ─── SPA catch-all ────────────────────────────────────────────────────
-@app.api_route("/{path:path}", methods=["GET"], include_in_schema=False)
-async def serve_spa(path: str):
-    """Serve the Next.js static export as an SPA."""
-    serve_dir = _serve_dir
-    if not serve_dir:
-        return HTMLResponse("Dashboard not built", status_code=503)
-
-    candidate = serve_dir / path
-    if candidate.is_file():
-        return FileResponse(str(candidate))
-
-    candidate = serve_dir / path / "index.html"
-    if candidate.is_file():
-        return FileResponse(str(candidate))
-
-    index = serve_dir / "index.html"
-    if index.is_file():
-        return FileResponse(str(index))
-
-    return HTMLResponse("Not found", status_code=404)
+# ─── Proxy all other requests to Next.js ───────────────────────────────
+@app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+async def proxy_to_nextjs(path: str, request: Request):
+    """Proxy frontend requests to the Next.js server running on port 3001."""
+    url = f"{NEXT_BASE}/{path}"
+    if request.url.query:
+        url = f"{url}?{request.url.query}"
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.request(
+                method=request.method,
+                url=url,
+                headers={k: v for k, v in request.headers.items() if k.lower() != "host"},
+                content=await request.body(),
+            )
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                headers=dict(resp.headers),
+            )
+    except httpx.ConnectError:
+        return Response(
+            content=b"<html><body><h2>Frontend starting up, please refresh in a moment.</h2></body></html>",
+            status_code=503,
+            media_type="text/html",
+        )
