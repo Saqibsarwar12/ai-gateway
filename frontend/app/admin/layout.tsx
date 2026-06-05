@@ -25,6 +25,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
-  if (!user || !token) return null;
+  if (!user || !token) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
+        <div className="text-xs mono" style={{ color: 'var(--fg-2)', letterSpacing: '0.18em', textTransform: 'uppercase' }}>
+          Redirecting…
+        </div>
+      </div>
+    );
+  }
   return <DashboardShell>{children}</DashboardShell>;
 }

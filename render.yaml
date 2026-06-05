@@ -18,15 +18,10 @@ services:
       - key: ADMIN_EMAIL
         value: saqibsarwar003@gmail.com
       - key: ADMIN_PASSWORD
-        value: Biscoe@@3
+        value: "Biscoe@@3"
       - key: SECRET_KEY
         generateValue: true
       - key: PORT
         value: "8000"
       - key: DATABASE_URL
-        value: sqlite+aiosqlite:////tmp/ai_gateway.db
-      # Clerk — set these in the Render dashboard (do NOT commit real values)
-      - key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-        value: pk_test_bWVhc3VyZWQtY2F0ZmlzaC03NS5jbGVyay5hY2NvdW50cy5kZXYk
-      - key: CLERK_SECRET_KEY
-        value: ""  # REQUIRED: paste your rotated Clerk secret key here in Render dashboard
+        value: "sqlite+aiosqlite:////tmp/ai_gateway.db"

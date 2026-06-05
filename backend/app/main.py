@@ -58,9 +58,12 @@ async def lifespan(app: FastAPI):
             await session.commit()
             print(f"Admin created: {settings.ADMIN_EMAIL} / API Key: {api_key}")
         else:
-            if not getattr(admin_user, 'tier', None) or admin_user.tier != "v3":
-                admin_user.tier = "v3"
-                await session.commit()
+            # Always sync password + tier so login works after env-var changes
+            admin_user.hashed_password = hash_password(settings.ADMIN_PASSWORD)
+            admin_user.tier = "v3"
+            admin_user.is_active = True
+            await session.commit()
+            print(f"Admin password refreshed: {settings.ADMIN_EMAIL}")
 
     yield
 
