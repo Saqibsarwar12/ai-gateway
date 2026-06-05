@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { AuthProvider } from '@/lib/auth';
-import { ClerkProvider } from '@clerk/nextjs';
+import { ClerkProvider } from '@/lib/clerk-shim';
 
 export const metadata: Metadata = {
   title: 'AI Gateway — Every model. One endpoint.',
@@ -17,7 +17,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <ClerkProvider
-      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY!}
+      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || ''}
       appearance={{
         variables: {
           colorBackground: '#0a0908',

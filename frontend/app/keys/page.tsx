@@ -1,5 +1,5 @@
 'use client';
-import { useUser, SignOutButton } from '@clerk/nextjs';
+import { useUser, SignOutButton } from '@/lib/clerk-shim';
 import { useAuth } from '@/lib/auth';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';

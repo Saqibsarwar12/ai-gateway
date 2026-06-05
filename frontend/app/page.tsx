@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { SignInButton, SignUpButton, useUser, SignedIn, SignedOut } from '@clerk/nextjs';
+import { SignInButton, SignUpButton, useUser, SignedIn, SignedOut } from '@/lib/clerk-shim';
 
 export default function HomePage() {
   const { user, isLoaded } = useUser();

@@ -1,4 +1,4 @@
-import { SignIn } from '@clerk/nextjs';
+import { SignIn } from '@/lib/clerk-shim';
 
 export default function SignInPage() {
   return (
