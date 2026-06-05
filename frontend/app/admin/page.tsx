@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Card, Loader, ErrorState, Stat } from '@/components/UI';
 import { useAuth } from '@/lib/auth';
+import { API_BASE_URL } from '@/lib/api';
 
 type Analytics = {
   total_requests: number;
@@ -26,10 +27,10 @@ export default function OverviewPage() {
     if (token) headers['Authorization'] = `Bearer ${token}`;
     else if (apiKey) headers['X-API-Key'] = apiKey;
     Promise.all([
-      fetch('/admin/analytics?days=7', { headers }).then((r) =>
+      fetch(`${API_BASE_URL}/admin/analytics?days=7`, { headers }).then((r) =>
         r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`))
       ),
-      fetch('/admin/providers', { headers }).then((r) =>
+      fetch(`${API_BASE_URL}/admin/providers`, { headers }).then((r) =>
         r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`))
       ),
     ])

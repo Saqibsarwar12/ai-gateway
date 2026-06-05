@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth';
+import { API_BASE_URL } from '@/lib/api';
 import { Card, Loader, ErrorState, Input, Select } from '@/components/UI';
 import type { RequestLog } from '@/lib/api';
 
@@ -21,7 +22,7 @@ export default function LogsPage() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch('/admin/logs?limit=200', { headers });
+      const r = await fetch(`${API_BASE_URL}/admin/logs?limit=200`, { headers });
       if (!r.ok) throw new Error(`${r.status}`);
       setLogs(await r.json());
     } catch (e: any) {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth';
+import { API_BASE_URL } from '@/lib/api';
 import { Card, Loader, ErrorState, Button, Input, Select, Modal, Badge } from '@/components/UI';
 import type { Provider } from '@/lib/api';
 
@@ -46,7 +47,7 @@ export default function ProvidersPage() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch('/admin/providers', { headers });
+      const r = await fetch(`${API_BASE_URL}/admin/providers`, { headers });
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
       setProviders(await r.json());
     } catch (e: any) {
@@ -62,13 +63,13 @@ export default function ProvidersPage() {
 
   async function deleteProvider(id: string) {
     if (!confirm('Delete this provider? Models routed to it will be unavailable.')) return;
-    await fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/admin/providers/${id}`, { method: 'DELETE', headers });
+    await fetch(`${API_BASE_URL}/admin/providers/${id}`, { method: 'DELETE', headers });
     load();
   }
   async function testProvider(id: string) {
     setTestingId(id);
     try {
-      const r = await fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/admin/providers/${id}/test`, { method: 'POST', headers });
+      const r = await fetch(`${API_BASE_URL}/admin/providers/${id}/test`, { method: 'POST', headers });
       const data = await r.json();
       setTestResults((m) => ({ ...m, [id]: data }));
     } catch (e: any) {
@@ -79,7 +80,7 @@ export default function ProvidersPage() {
   async function syncModels(id: string) {
     setSyncingId(id);
     try {
-      const r = await fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/admin/providers/${id}/sync-models`, { method: 'POST', headers });
+      const r = await fetch(`${API_BASE_URL}/admin/providers/${id}/sync-models`, { method: 'POST', headers });
       if (!r.ok) throw new Error(await r.text());
       const data = await r.json();
       alert(`Synced ${data.total} models (${data.created} new, ${data.updated} updated).`);
@@ -246,8 +247,8 @@ function ProviderForm({
         is_active: enabled,
       };
       const url = initial
-        ? `${typeof window !== 'undefined' ? window.location.origin : ''}/admin/providers/${initial.id}`
-        : '/admin/providers';
+        ? `${API_BASE_URL}/admin/providers/${initial.id}`
+        : `${API_BASE_URL}/admin/providers`;
       const method = initial ? 'PUT' : 'POST';
       const r = await fetch(url, {
         method,

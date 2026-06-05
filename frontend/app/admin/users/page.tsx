@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth';
+import { API_BASE_URL } from '@/lib/api';
 import {
   Card,
   Loader,
@@ -33,7 +34,7 @@ export default function UsersPage() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch('/admin/users', { headers });
+      const r = await fetch(`${API_BASE_URL}/admin/users`, { headers });
       if (!r.ok) throw new Error(`${r.status}`);
       setUsers(await r.json());
     } catch (e: any) {
@@ -48,7 +49,7 @@ export default function UsersPage() {
   }, [token, apiKey]);
 
   async function toggleActive(u: UserWithTier) {
-    await fetch(`/admin/users/${u.id}`, {
+    await fetch(`${API_BASE_URL}/admin/users/${u.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify({ is_active: !u.is_active }),
@@ -58,12 +59,12 @@ export default function UsersPage() {
 
   async function remove(u: UserWithTier) {
     if (!confirm(`Delete user ${u.email}? This cannot be undone.`)) return;
-    await fetch(`/admin/users/${u.id}`, { method: 'DELETE', headers });
+    await fetch(`${API_BASE_URL}/admin/users/${u.id}`, { method: 'DELETE', headers });
     load();
   }
 
   async function updateTier(u: UserWithTier, tier: string) {
-    await fetch(`/admin/users/${u.id}`, {
+    await fetch(`${API_BASE_URL}/admin/users/${u.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify({ tier }),
@@ -280,7 +281,7 @@ function NewUserForm({
     setSaving(true);
     setError(null);
     try {
-      const r = await fetch('/admin/users', {
+      const r = await fetch(`${API_BASE_URL}/admin/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
         body: JSON.stringify({ name, email, password, role, tier, credits: parseInt(credits) }),

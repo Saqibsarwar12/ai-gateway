@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth';
+import { API_BASE_URL } from '@/lib/api';
 import { Card, Loader, ErrorState, Select, Stat } from '@/components/UI';
 import type { RequestLog } from '@/lib/api';
 
@@ -32,11 +33,11 @@ export default function AnalyticsPage() {
     setError(null);
     try {
       const [s, l] = await Promise.all([
-        fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/admin/analytics?days=${days}`, { headers }).then((r) => {
+        fetch(`${API_BASE_URL}/admin/analytics?days=${days}`, { headers }).then((r) => {
           if (!r.ok) throw new Error(`${r.status}`);
           return r.json();
         }),
-        fetch('/admin/logs?limit=500', { headers }).then((r) => (r.ok ? r.json() : [])),
+        fetch(`${API_BASE_URL}/admin/logs?limit=500`, { headers }).then((r) => (r.ok ? r.json() : [])),
       ]);
       setStats(s);
       setLogs(l);

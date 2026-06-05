@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/lib/auth';
+import { API_BASE_URL } from '@/lib/api';
 import { Card, Loader, ErrorState, Input, Select, Button, Badge, Modal } from '@/components/UI';
 import type { Provider } from '@/lib/api';
 
@@ -32,8 +33,8 @@ export default function ModelsPage() {
     setError(null);
     try {
       const [m, p] = await Promise.all([
-        fetch('/admin/models', { headers }).then((r) => (r.ok ? r.json() : [])),
-        fetch('/admin/providers', { headers }).then((r) => (r.ok ? r.json() : [])),
+        fetch(`${API_BASE_URL}/admin/models`, { headers }).then((r) => (r.ok ? r.json() : [])),
+        fetch(`${API_BASE_URL}/admin/providers`, { headers }).then((r) => (r.ok ? r.json() : [])),
       ]);
       setModels(m);
       setProviders(p);
@@ -51,7 +52,7 @@ export default function ModelsPage() {
   async function sync(p: Provider) {
     setSyncing(p.id);
     try {
-      await fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/admin/providers/${p.id}/sync-models`, {
+      await fetch(`${API_BASE_URL}/admin/providers/${p.id}/sync-models`, {
         method: 'POST',
         headers,
       });
@@ -194,7 +195,7 @@ function NewModelForm({
     setSaving(true);
     setError(null);
     try {
-      const r = await fetch('/admin/models', {
+      const r = await fetch(`${API_BASE_URL}/admin/models`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
         body: JSON.stringify({

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth';
+import { API_BASE_URL } from '@/lib/api';
 import {
   Card,
   Loader,
@@ -40,8 +41,8 @@ export default function RoutingPage() {
     setError(null);
     try {
       const [r, p] = await Promise.all([
-        fetch('/admin/routing', { headers }).then((r) => (r.ok ? r.json() : [])),
-        fetch('/admin/providers', { headers }).then((r) => (r.ok ? r.json() : [])),
+        fetch(`${API_BASE_URL}/admin/routing`, { headers }).then((r) => (r.ok ? r.json() : [])),
+        fetch(`${API_BASE_URL}/admin/providers`, { headers }).then((r) => (r.ok ? r.json() : [])),
       ]);
       setRules(r);
       setProviders(p);
@@ -57,7 +58,7 @@ export default function RoutingPage() {
   }, [token, apiKey]);
 
   async function toggle(r: RoutingRule) {
-    await fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/admin/routing/${r.id}`, {
+    await fetch(`${API_BASE_URL}/admin/routing/${r.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify({ is_active: !r.is_active }),
@@ -67,7 +68,7 @@ export default function RoutingPage() {
 
   async function remove(r: RoutingRule) {
     if (!confirm(`Delete routing rule "${r.name}"?`)) return;
-    await fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/admin/routing/${r.id}`, { method: 'DELETE', headers });
+    await fetch(`${API_BASE_URL}/admin/routing/${r.id}`, { method: 'DELETE', headers: { ...headers } });
     load();
   }
 
@@ -223,8 +224,8 @@ function RoutingForm({
         is_active: active,
       };
       const url = initial
-        ? `${typeof window !== 'undefined' ? window.location.origin : ''}/admin/routing/${initial.id}`
-        : '/admin/routing';
+        ? `${API_BASE_URL}/admin/routing/${initial.id}`
+        : `${API_BASE_URL}/admin/routing`;
       const method = initial ? 'PUT' : 'POST';
       const r = await fetch(url, {
         method,
