@@ -84,8 +84,6 @@ class User(Base):
     credits = Column(Integer, default=100)
     is_active = Column(Boolean, default=True)
     api_key = Column(String, unique=True)
-    # Clerk integration: store Clerk user ID for SSO users
-    clerk_user_id = Column(String, unique=True, nullable=True)
     extra_metadata = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
 

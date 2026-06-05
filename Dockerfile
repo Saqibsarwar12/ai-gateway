@@ -7,44 +7,32 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONUNBUFFERED=1
 
-# Install system deps: Node.js 20 + Python build tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libffi-dev libssl-dev curl ca-certificates gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip
 RUN pip install --no-cache-dir --upgrade pip==24.3.1 setuptools==75.6.0 wheel==0.45.1
 
-# Install Python deps
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir --only-binary=:all: -r /app/requirements.txt || \
     pip install --no-cache-dir -r /app/requirements.txt
 
-# ---- Build Next.js frontend (standalone output) ----
 COPY frontend/ /app/frontend/
 WORKDIR /app/frontend
 
-# Clerk publishable key is public — safe to bake into the image
-ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_bWVhc3VyZWQtY2F0ZmlzaC03NS5jbGVyay5hY2NvdW50cy5kZXYk
 ARG NEXT_PUBLIC_API_URL=""
-ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 RUN npm ci 2>/dev/null || npm install
 RUN npm run build
 
-# Next.js 'standalone' output puts a minimal server at .next/standalone/server.js
-# but it does NOT include .next/static or public/ — those must be copied next to it.
 RUN mkdir -p /app/frontend/.next/standalone/.next \
     && cp -r /app/frontend/.next/static /app/frontend/.next/standalone/.next/static \
     && if [ -d /app/frontend/public ]; then cp -r /app/frontend/public /app/frontend/.next/standalone/public; fi
 
-# ---- Backend ----
 COPY backend/ /app/backend/
-
-# ---- Start script ----
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 

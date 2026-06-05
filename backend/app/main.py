@@ -1,7 +1,7 @@
 """FastAPI application entry point — AI Gateway Platform.
 
 In production (Render), FastAPI runs on port 8000 and Next.js runs on port 3001.
-FastAPI handles all /v1, /v2, /v3, /admin, /clerk, /health API routes.
+FastAPI handles all /v1, /v2, /v3, /admin, /health API routes.
 All other GET requests are proxied to the Next.js server on port 3001.
 """
 import os
@@ -19,7 +19,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.core.config import settings
 from app.api.v1 import admin
 from app.api.gateway import make_openai_router
-from app.api.clerk import router as clerk_router
 
 NEXT_PORT = int(os.getenv("NEXT_PORT", "3001"))
 NEXT_BASE = f"http://localhost:{NEXT_PORT}"
@@ -69,7 +68,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.VERSION,
-    description="Production AI Gateway — OpenAI-compatible API with provider routing, tiered access, and Clerk auth",
+    description="Production AI Gateway — OpenAI-compatible API with provider routing and tiered access",
     lifespan=lifespan,
 )
 
@@ -86,7 +85,6 @@ app.include_router(make_openai_router("v1"), prefix="/v1", tags=["AI Gateway v1"
 app.include_router(make_openai_router("v2"), prefix="/v2", tags=["AI Gateway v2"])
 app.include_router(make_openai_router("v3"), prefix="/v3", tags=["AI Gateway v3"])
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
-app.include_router(clerk_router, prefix="/clerk", tags=["Clerk"])
 
 
 @app.get("/health")
