@@ -2,7 +2,7 @@
    Single monochrome palette. No linear gradients. Subtle texture only.
    Word-wrap safe, responsive, accessible. */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&display=swap');
+/* Font imports removed — using system fonts to avoid network blocking */
 
 :root {
   --font-display: 'Inter Tight', system-ui, sans-serif;
