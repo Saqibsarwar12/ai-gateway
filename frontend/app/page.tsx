@@ -28,6 +28,7 @@ export default function HomePage() {
             <a href="/docs" target="_blank" className="font-mono text-xs text-[#8a8275] hover:text-[#f5f1e8] tracking-wider uppercase">API Docs</a>
             <a href="#endpoints" className="font-mono text-xs text-[#8a8275] hover:text-[#f5f1e8] tracking-wider uppercase">Endpoints</a>
             <Link href="/login" className="font-mono text-xs text-[#8a8275] hover:text-[#f5f1e8] tracking-wider uppercase">Sign in</Link>
+            <Link href="/signup" className="font-mono text-xs text-[#8a8275] hover:text-[#f5f1e8] tracking-wider uppercase">Sign up</Link>
             {adminSess?.role === 'admin' && (
               <Link href="/admin" className="font-mono text-xs px-3 py-1.5 bg-[#d4a574] text-[#0a0908] rounded-sm tracking-wider uppercase hover:bg-[#c89960]">
                 Admin →
@@ -68,6 +69,12 @@ export default function HomePage() {
           >
             API docs ↗
           </a>
+          <Link
+            href="/signup"
+            className="font-mono text-sm px-6 py-3 bg-[#d4a574] text-[#0a0908] rounded-sm tracking-wider uppercase hover:bg-[#c89960]"
+          >
+            Create free account
+          </Link>
         </div>
       </section>
 

@@ -9,7 +9,7 @@ import { Button, Input, Spinner } from '@/components/UI';
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -19,7 +19,7 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      await login(email, password);
+      await login(identifier, password);
       router.push('/admin');
     } catch (err: any) {
       setError(err.message || 'Invalid credentials');
@@ -101,13 +101,13 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="stack" style={{ gap: '0.875rem' }}>
             <Input
-              label="Email"
-              type="email"
-              value={email}
-              onChange={setEmail}
+              label="Email or username"
+              type="text"
+              value={identifier}
+              onChange={setIdentifier}
               required
               autoComplete="email"
-              placeholder="you@company.com"
+              placeholder="you@company.com or use"
             />
             <Input
               label="Password"

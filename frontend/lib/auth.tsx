@@ -12,6 +12,7 @@ interface User {
   credits?: number;
   api_key?: string;
   is_active?: boolean;
+  tier?: string;
 }
 
 interface AuthState {
@@ -22,7 +23,8 @@ interface AuthState {
 
 interface AuthContextValue extends AuthState {
   setAuth: (auth: Partial<AuthState>) => void;
-  login: (email: string, password: string) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<void>;
+  register: (data: { name: string; email: string; password: string }) => Promise<{ api_key: string }>;
   logout: () => void;
   refresh: () => Promise<void>;
   apiKey: string | null;
@@ -62,11 +64,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const login = async (email: string, password: string): Promise<void> => {
+  const login = async (identifier: string, password: string): Promise<void> => {
+    // Accept email OR username — backend looks up by email OR name.
     const res = await fetch(`${API_BASE}/admin/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ identifier, password }),
     });
     if (!res.ok) {
       let detail = 'Login failed';
@@ -79,6 +82,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data = await res.json();
     const user: User = data.user;
     setAuth({ token: data.access_token, user });
+  };
+
+  const register = async (data: { name: string; email: string; password: string }): Promise<{ api_key: string }> => {
+    const res = await fetch(`${API_BASE}/admin/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      let detail = 'Registration failed';
+      try {
+        const body = await res.json();
+        detail = body.detail || detail;
+      } catch {}
+      throw new Error(detail);
+    }
+    const json = await res.json();
+    setAuth({ token: json.access_token, user: json.user });
+    return { api_key: json.api_key };
   };
 
   const logout = () => {
@@ -103,7 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ ...state, setAuth, login, logout, refresh, apiKey: null }}>
+    <AuthContext.Provider value={{ ...state, setAuth, login, register, logout, refresh, apiKey: null }}>
       {children}
     </AuthContext.Provider>
   );
