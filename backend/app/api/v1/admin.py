@@ -94,7 +94,8 @@ import time
 
 # ─── Auth (PUBLIC — no token required) ────────────────────────
 class LoginBody(BaseModel):
-    identifier: str  # email OR username
+    identifier: Optional[str] = None
+    email: Optional[str] = None
     password: str
 
 @router.post("/auth/login")
@@ -105,7 +106,7 @@ async def login(body: LoginBody, request: Request):
     unless the caller is an admin.
     """
     _check_login_rate_limit(_client_ip(request))
-    identifier = (body.identifier or "").strip()
+    identifier = (body.identifier or body.email or "").strip()
     if not identifier or not body.password:
         raise HTTPException(status_code=400, detail="Missing identifier or password")
 
