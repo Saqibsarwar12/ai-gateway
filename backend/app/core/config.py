@@ -12,7 +12,7 @@ class Settings:
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./ai_gateway.db")
     USE_SQLITE = os.getenv("USE_SQLITE", "false").lower() == "true"
     ALGORITHM = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+    ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30 days
 
     # Tier rate limits (requests per minute)
     TIER_RATE_LIMITS = {

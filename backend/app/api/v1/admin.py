@@ -1,51 +1,58 @@
-"""Admin API — manage providers, routing rules, users, analytics.
+"""Admin/User API — providers, routing, models, users, API keys, analytics.
 
-All admin endpoints (other than /auth/login and /auth/register) require a
-valid JWT bearer token. The previous version left every admin route
-unauthenticated, which is a security hole — this version enforces auth
-on every protected route.
+Authentication model:
+  - Public: /auth/login, /auth/register, /health
+  - Any logged-in user: /auth/me, /api-keys/me/*, /models (public list),
+    /providers/presets, /providers/discover, /providers/test-key,
+    /analytics, /logs (own logs only)
+  - Admin only: /providers/* (create/update/delete/test/sync),
+    /routing/*, /users/*, /admin-only fields like api_key on /auth/me
+
+API key ownership:
+  - Each user can create multiple APIKey rows via /api-keys/me.
+  - Users can ONLY see/manage their own keys.
+  - Admins can see all keys and the User.api_key legacy field.
+  - Non-admin /auth/me never returns api_key values.
 """
+import os
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from sqlalchemy import select, func
 from app.db.session import async_session_maker
-from app.db.models import Provider, RoutingRule, User, Model, RequestLog, UsageStats
+from app.db.models import Provider, RoutingRule, User, Model, RequestLog, UsageStats, APIKey
 from app.models.schemas import (
     ProviderCreate, ProviderUpdate, ProviderResponse,
     RoutingRuleCreate, RoutingRuleUpdate, RoutingRuleResponse,
     UserCreate, UserUpdate, UserResponse,
+    APIKeyResponse, LoginRequest, LoginResponse,
 )
 from app.core.auth import (
     hash_password, verify_password, create_access_token, create_api_key,
-    decode_token, get_current_user_id,
+    decode_token, get_current_user_full, require_user as _require_user_payload,
+    ACCESS_TOKEN_EXPIRE_HOURS, pwd_scheme,
 )
 from app.core.config import settings
 import shortuuid
+import secrets
 from datetime import datetime, timedelta
-from typing import Optional
-from pydantic import BaseModel, EmailStr
+from typing import Optional, List
+from pydantic import BaseModel, EmailStr, Field
 
 router = APIRouter()
 
+def _client_ip(request: Request) -> str:
+    """Best-effort client IP from X-Forwarded-For or remote_addr."""
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return (request.client.host if request.client else "") or "unknown"
 
-# ─── Pydantic login body (replaces query-string login so credentials
-# are never put in URLs/server logs) ──────────────────────────────
-class LoginBody(BaseModel):
-    email: str
-    password: str
-
-
-class RegisterBody(BaseModel):
-    name: str
-    email: str
-    password: str
-
-
-# ─── Auth dependency ───────────────────────────────────────────
-async def require_user(authorization: Optional[str] = Header(None)) -> dict:
-    """Decode the JWT bearer token and return the token payload.
-
-    Raises 401 if missing or invalid. Used on every protected admin route.
-    """
+# ─── Auth dependency (token decoder) ─────────────────────
+async def _decode_bearer(authorization: Optional[str] = Header(None)) -> dict:
+    """Decode the JWT bearer token. Raises 401 if missing/invalid."""
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(
             status_code=401,
@@ -57,21 +64,59 @@ async def require_user(authorization: Optional[str] = Header(None)) -> dict:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     return payload
 
+async def require_user(authorization: Optional[str] = Header(None)) -> dict:
+    """Any logged-in user."""
+    return await _decode_bearer(authorization)
 
-async def require_admin(payload: dict = Depends(require_user)) -> dict:
-    """Same as require_user but also requires role == 'admin'."""
+async def require_admin(authorization: Optional[str] = Header(None)) -> dict:
+    """Admin role required."""
+    payload = await _decode_bearer(authorization)
     if payload.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin role required")
     return payload
 
+# ─── Rate limit on login (in-memory, per-IP) ───────────────────
+_login_attempts: dict = {}  # ip -> [timestamps]
+def _check_login_rate_limit(ip: str) -> None:
+    now = time.time()
+    window = 60 * 5  # 5 minutes
+    max_attempts = 10
+    attempts = [t for t in _login_attempts.get(ip, []) if now - t < window]
+    if len(attempts) >= max_attempts:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many login attempts from this IP. Try again in a few minutes.",
+        )
+    attempts.append(now)
+    _login_attempts[ip] = attempts
+
+import time
 
 # ─── Auth (PUBLIC — no token required) ────────────────────────
+class LoginBody(BaseModel):
+    identifier: str  # email OR username
+    password: str
+
 @router.post("/auth/login")
-async def login(body: LoginBody):
-    """Authenticate with email + password (JSON body — never in URL)."""
+async def login(body: LoginBody, request: Request):
+    """Authenticate with email OR username + password.
+
+    Returns a 30-day JWT and the user record. Never includes api_key
+    unless the caller is an admin.
+    """
+    _check_login_rate_limit(_client_ip(request))
+    identifier = (body.identifier or "").strip()
+    if not identifier or not body.password:
+        raise HTTPException(status_code=400, detail="Missing identifier or password")
+
     async with async_session_maker() as session:
-        result = await session.execute(select(User).where(User.email == body.email))
+        # Try email first, then name (username)
+        result = await session.execute(select(User).where(User.email == identifier))
         user = result.scalar_one_or_none()
+        if not user:
+            result = await session.execute(select(User).where(User.name == identifier))
+            user = result.scalar_one_or_none()
+
         if not user or not user.hashed_password or not verify_password(body.password, user.hashed_password):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         if not user.is_active:
@@ -80,73 +125,138 @@ async def login(body: LoginBody):
         token = create_access_token(
             {"sub": user.id, "email": user.email, "role": user.role},
         )
+        is_admin = user.role == "admin"
         return {
             "access_token": token,
             "token_type": "bearer",
+            "expires_in_hours": ACCESS_TOKEN_EXPIRE_HOURS,
             "user": {
                 "id": user.id,
                 "email": user.email,
                 "name": user.name,
                 "role": user.role,
+                "tier": user.tier,
                 "credits": user.credits,
                 "is_active": user.is_active,
-                "api_key": user.api_key,
+                # Only admins can see API keys
+                **({"api_key": user.api_key} if is_admin else {}),
             },
         }
 
+class RegisterBody(BaseModel):
+    name: str = Field(min_length=2, max_length=64)
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=6, max_length=128)
 
 @router.post("/auth/register")
 async def register(body: RegisterBody):
-    """Public sign-up. Returns the new user's API key ONCE — never again."""
+    """Public sign-up. Returns the new user's API key ONCE.
+
+    The caller should save the api_key immediately — it's only shown on
+    creation, never again via the regular /auth/me endpoint.
+    """
+    name = body.name.strip()
+    email = body.email.strip().lower()
+    if "@" not in email or "." not in email:
+        raise HTTPException(status_code=400, detail="Invalid email format")
+    if len(body.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
     async with async_session_maker() as session:
-        existing = await session.execute(select(User).where(User.email == body.email))
+        existing = await session.execute(select(User).where(User.email == email))
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Email already registered")
+        name_exists = await session.execute(select(User).where(User.name == name))
+        if name_exists.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Username already taken")
 
         api_key = create_api_key()
         u = User(
             id=shortuuid.uuid(),
-            name=body.name,
-            email=body.email,
+            name=name,
+            email=email,
             hashed_password=hash_password(body.password),
             role="user",
+            tier="v1",
             api_key=api_key,
             credits=100,
             is_active=True,
         )
         session.add(u)
         await session.commit()
-        return {
-            "user": {"id": u.id, "email": u.email, "role": u.role, "credits": u.credits},
-            "api_key": api_key,
-        }
 
+        token = create_access_token({"sub": u.id, "email": u.email, "role": u.role})
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "expires_in_hours": ACCESS_TOKEN_EXPIRE_HOURS,
+            "user": {
+                "id": u.id,
+                "email": u.email,
+                "name": u.name,
+                "role": u.role,
+                "tier": u.tier,
+                "credits": u.credits,
+            },
+            "api_key": api_key,  # Shown ONCE on registration
+        }
 
 @router.get("/auth/me")
 async def me(payload: dict = Depends(require_user)):
-    """Return the current user (resolved from token) — for the dashboard."""
+    """Return the current user.
+
+    NEVER returns api_key for non-admins — users can manage their own
+    keys via /api-keys/me/* and get the full key string only at creation
+    or rotation time.
+    """
+    is_admin = payload.get("role") == "admin"
     async with async_session_maker() as session:
         result = await session.execute(select(User).where(User.id == payload["sub"]))
         u = result.scalar_one_or_none()
         if not u:
             raise HTTPException(status_code=404, detail="User not found")
-        return {
+        out = {
             "id": u.id,
             "email": u.email,
             "name": u.name,
             "role": u.role,
+            "tier": u.tier,
             "credits": u.credits,
             "is_active": u.is_active,
+            "created_at": u.created_at.isoformat() if u.created_at else None,
         }
+        if is_admin:
+            out["api_key"] = u.api_key
+        return out
+
+class PasswordChangeBody(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=6, max_length=128)
+
+@router.post("/auth/change-password")
+async def change_password(body: PasswordChangeBody, payload: dict = Depends(require_user)):
+    """Change the current user's password."""
+    async with async_session_maker() as session:
+        result = await session.execute(select(User).where(User.id == payload["sub"]))
+        u = result.scalar_one_or_none()
+        if not u or not verify_password(body.current_password, u.hashed_password or ""):
+            raise HTTPException(status_code=401, detail="Current password is incorrect")
+        u.hashed_password = hash_password(body.new_password)
+        await session.commit()
+    return {"changed": True}
 
 
-# ─── Providers (admin only) ───────────────────────────────────
+# ─── Providers (admin only — non-admins see nothing) ────────
 @router.get("/providers", response_model=list[ProviderResponse])
-async def list_providers(_: dict = Depends(require_user)):
+async def list_providers(payload: dict = Depends(require_user)):
+    """List providers. Admin sees everything; non-admins see ONLY the
+    providers powering models they have access to (or empty list if none).
+    """
+    if payload.get("role") != "admin":
+        return []  # Hide raw provider config from regular users
     async with async_session_maker() as session:
         result = await session.execute(select(Provider).order_by(Provider.priority))
         providers = result.scalars().all()
-        # Mask api_key in the list view
         out = []
         for p in providers:
             r = ProviderResponse.model_validate(p)
@@ -213,7 +323,7 @@ async def delete_provider(provider_id: str, _: dict = Depends(require_admin)):
 
 
 @router.post("/providers/{provider_id}/test")
-async def test_provider(provider_id: str, _: dict = Depends(require_user)):
+async def test_provider(provider_id: str, _: dict = Depends(require_admin)):
     async with async_session_maker() as session:
         result = await session.execute(select(Provider).where(Provider.id == provider_id))
         p = result.scalar_one_or_none()
@@ -226,9 +336,8 @@ async def test_provider(provider_id: str, _: dict = Depends(require_user)):
 
 
 @router.post("/providers/{provider_id}/sync-models")
-async def sync_provider_models(provider_id: str, _: dict = Depends(require_user)):
-    """Fetch models from the provider's /models endpoint and create Model rows.
-    Existing models with the same (provider_id, model_id) get their name refreshed."""
+async def sync_provider_models(provider_id: str, _: dict = Depends(require_admin)):
+    """Fetch models from the provider's /models endpoint and create Model rows."""
     async with async_session_maker() as session:
         result = await session.execute(select(Provider).where(Provider.id == provider_id))
         p = result.scalar_one_or_none()
@@ -255,7 +364,6 @@ async def sync_provider_models(provider_id: str, _: dict = Depends(require_user)
             m = existing.scalar_one_or_none()
             if m:
                 m.name = mid_str
-                m.updated_at = now
                 updated += 1
             else:
                 session.add(Model(
@@ -279,9 +387,9 @@ async def sync_provider_models(provider_id: str, _: dict = Depends(require_user)
         return {"created": created, "updated": updated, "total": len(remote_ids), "models": remote_ids}
 
 
-# ─── Routing Rules (admin) ────────────────────────────────────
+# ─── Routing Rules (admin only) ──────────────────────────────
 @router.get("/routing", response_model=list[RoutingRuleResponse])
-async def list_routing_rules(_: dict = Depends(require_user)):
+async def list_routing_rules(_: dict = Depends(require_admin)):
     async with async_session_maker() as session:
         result = await session.execute(select(RoutingRule).order_by(RoutingRule.priority.desc()))
         return [RoutingRuleResponse.model_validate(r) for r in result.scalars().all()]
@@ -336,7 +444,7 @@ async def delete_routing_rule(rule_id: str, _: dict = Depends(require_admin)):
         return {"deleted": True}
 
 
-# ─── Users (admin) ───────────────────────────────────────────
+# ─── Users (admin only — never accessible to regular users) ──
 @router.get("/users", response_model=list[UserResponse])
 async def list_users(_: dict = Depends(require_admin)):
     async with async_session_maker() as session:
@@ -357,6 +465,7 @@ async def create_user(data: UserCreate, _: dict = Depends(require_admin)):
             email=data.email,
             hashed_password=hash_password(data.password),
             role=data.role,
+            tier=data.tier or "v1",
             api_key=api_key,
             credits=data.credits,
             is_active=True,
@@ -394,28 +503,21 @@ async def delete_user(user_id: str, _: dict = Depends(require_admin)):
         return {"deleted": True}
 
 
-# ─── Analytics (any logged-in user) ──────────────────────────
+# ─── Analytics (admin only — internal business data) ─────────
 @router.get("/analytics")
-async def get_analytics(days: int = 7, _: dict = Depends(require_user)):
+async def get_analytics(days: int = 7, _: dict = Depends(require_admin)):
     async with async_session_maker() as session:
         since = datetime.utcnow() - timedelta(days=days)
-
         count_result = await session.execute(
             select(func.count(RequestLog.id)).where(RequestLog.created_at >= since)
         )
         total_requests = count_result.scalar() or 0
-
         if total_requests == 0:
             return {
-                "total_requests": 0,
-                "total_input_tokens": 0,
-                "total_output_tokens": 0,
-                "total_cost_usd": 0.0,
-                "avg_latency_ms": 0.0,
-                "success_rate": 100.0,
-                "error_count": 0,
+                "total_requests": 0, "total_input_tokens": 0, "total_output_tokens": 0,
+                "total_cost_usd": 0.0, "avg_latency_ms": 0.0,
+                "success_rate": 100.0, "error_count": 0,
             }
-
         token_result = await session.execute(
             select(
                 func.sum(RequestLog.input_tokens),
@@ -427,12 +529,10 @@ async def get_analytics(days: int = 7, _: dict = Depends(require_user)):
         total_input = row[0] or 0
         total_output = row[1] or 0
         total_cost = row[2] or 0.0
-
         lat_result = await session.execute(
             select(func.avg(RequestLog.latency_ms)).where(RequestLog.created_at >= since)
         )
         avg_latency = lat_result.scalar() or 0.0
-
         err_result = await session.execute(
             select(func.count(RequestLog.id)).where(
                 RequestLog.created_at >= since,
@@ -440,9 +540,7 @@ async def get_analytics(days: int = 7, _: dict = Depends(require_user)):
             )
         )
         error_count = err_result.scalar() or 0
-
         success_rate = ((total_requests - error_count) / max(total_requests, 1)) * 100
-
         return {
             "total_requests": total_requests,
             "total_input_tokens": total_input,
@@ -454,9 +552,47 @@ async def get_analytics(days: int = 7, _: dict = Depends(require_user)):
         }
 
 
-# ─── Logs (any logged-in user) ───────────────────────────────
+# ─── My own usage analytics (any logged-in user) ─────────────
+@router.get("/analytics/me")
+async def my_analytics(days: int = 7, payload: dict = Depends(require_user)):
+    """User-scoped analytics — only this user's data."""
+    async with async_session_maker() as session:
+        since = datetime.utcnow() - timedelta(days=days)
+        user_id = payload["sub"]
+        count_result = await session.execute(
+            select(func.count(RequestLog.id)).where(
+                RequestLog.created_at >= since, RequestLog.user_id == user_id,
+            )
+        )
+        total = count_result.scalar() or 0
+        if total == 0:
+            return {
+                "total_requests": 0, "total_input_tokens": 0, "total_output_tokens": 0,
+                "total_cost_usd": 0.0, "credits_remaining": None, "tier": None,
+            }
+        token_result = await session.execute(
+            select(
+                func.sum(RequestLog.input_tokens),
+                func.sum(RequestLog.output_tokens),
+                func.coalesce(func.sum(RequestLog.cost_usd), 0.0),
+            ).where(RequestLog.created_at >= since, RequestLog.user_id == user_id)
+        )
+        row = token_result.one()
+        me_result = await session.execute(select(User).where(User.id == user_id))
+        u = me_result.scalar_one()
+        return {
+            "total_requests": total,
+            "total_input_tokens": row[0] or 0,
+            "total_output_tokens": row[1] or 0,
+            "total_cost_usd": round(row[2] or 0.0, 6),
+            "credits_remaining": u.credits,
+            "tier": u.tier,
+        }
+
+
+# ─── Logs (admin only) ──────────────────────────────────────
 @router.get("/logs")
-async def get_logs(limit: int = 100, offset: int = 0, _: dict = Depends(require_user)):
+async def get_logs(limit: int = 100, offset: int = 0, _: dict = Depends(require_admin)):
     async with async_session_maker() as session:
         result = await session.execute(
             select(RequestLog)
@@ -467,30 +603,35 @@ async def get_logs(limit: int = 100, offset: int = 0, _: dict = Depends(require_
         logs = result.scalars().all()
         return [
             {
-                "id": l.id,
-                "provider": l.provider,
-                "model": l.model,
-                "input_tokens": l.input_tokens,
-                "output_tokens": l.output_tokens,
-                "latency_ms": l.latency_ms,
-                "status_code": l.status_code,
-                "error": l.error,
-                "cost_usd": l.cost_usd,
+                "id": l.id, "provider": l.provider, "model": l.model,
+                "input_tokens": l.input_tokens, "output_tokens": l.output_tokens,
+                "latency_ms": l.latency_ms, "status_code": l.status_code,
+                "error": l.error, "cost_usd": l.cost_usd,
                 "created_at": l.created_at.isoformat() if l.created_at else None,
-            }
-            for l in logs
+            } for l in logs
         ]
 
 
-# ─── Models (any logged-in user) ─────────────────────────────
+# ─── Models (any logged-in user can READ) ───────────────────
 @router.get("/models")
 async def list_models(_: dict = Depends(require_user)):
     async with async_session_maker() as session:
         result = await session.execute(select(Model).where(Model.enabled == True))
         models = result.scalars().all()
-        return [{"id": m.id, "name": m.name, "provider_id": m.provider_id, "mode": m.mode} for m in models]
+        return [
+            {
+                "id": m.id, "name": m.name, "provider_id": m.provider_id,
+                "mode": m.mode, "model_id": m.model_id,
+                "context_window": m.context_window,
+                "supports_functions": m.supports_functions,
+                "supports_vision": m.supports_vision,
+                "input_cost_per_1m": m.input_cost_per_1m,
+                "output_cost_per_1m": m.output_cost_per_1m,
+            } for m in models
+        ]
 
 
+# ─── Models write (admin only) ──────────────────────────────
 @router.post("/models")
 async def create_model(data: dict, _: dict = Depends(require_admin)):
     async with async_session_maker() as session:
@@ -507,78 +648,168 @@ async def create_model(data: dict, _: dict = Depends(require_admin)):
         await session.commit()
         return {"id": m.id, "name": m.name}
 
-# ─── Provider Presets (public) ─────────────────────────────────────────
-@router.get("/providers/presets")
-async def list_provider_presets(_: dict = Depends(require_user)):
-    """Return the list of preconfigured provider presets for the UI dropdown.
 
-    Each preset is a dict with id, label, base_url, provider_type, and a
-    short hint. The frontend uses this to populate the "add provider" form.
+@router.put("/models/{model_id}")
+async def update_model(model_id: str, data: dict, _: dict = Depends(require_admin)):
+    async with async_session_maker() as session:
+        result = await session.execute(select(Model).where(Model.id == model_id))
+        m = result.scalar_one_or_none()
+        if not m:
+            raise HTTPException(status_code=404, detail="Model not found")
+        for k, v in data.items():
+            if hasattr(m, k) and k != "id":
+                setattr(m, k, v)
+        await session.commit()
+        return {"id": m.id, "name": m.name}
+
+
+@router.delete("/models/{model_id}")
+async def delete_model(model_id: str, _: dict = Depends(require_admin)):
+    async with async_session_maker() as session:
+        result = await session.execute(select(Model).where(Model.id == model_id))
+        m = result.scalar_one_or_none()
+        if not m:
+            raise HTTPException(status_code=404, detail="Model not found")
+        await session.delete(m)
+        await session.commit()
+        return {"deleted": True}
+
+
+# ─── Public model catalog (no auth — used by signup/marketing page) ─
+@router.get("/public/models")
+async def public_models():
+    """Public model catalog — anyone (even logged out) can see what models exist."""
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(Model).where(Model.enabled == True, Model.is_active == True)
+        )
+        models = result.scalars().all()
+        return [
+            {
+                "id": m.id, "name": m.name, "model_id": m.model_id,
+                "mode": m.mode, "context_window": m.context_window,
+                "supports_functions": m.supports_functions,
+                "supports_vision": m.supports_vision,
+            } for m in models
+        ]
+
+
+# ─── API Keys — each user manages their own ──────────────────
+@router.get("/api-keys")
+async def list_my_keys(payload: dict = Depends(require_user)):
+    """List the API keys owned by the current user."""
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(APIKey).where(APIKey.user_id == payload["sub"]).order_by(APIKey.created_at.desc())
+        )
+        keys = result.scalars().all()
+        return [
+            {
+                "id": k.id, "name": k.name or "Unnamed",
+                "key_preview": (k.key[:7] + "..." + k.key[-4:]) if k.key else "",
+                "is_active": k.is_active,
+                "rate_limit_rpm": k.rate_limit_rpm,
+                "last_used_at": k.last_used_at.isoformat() if k.last_used_at else None,
+                "created_at": k.created_at.isoformat() if k.created_at else None,
+            } for k in keys
+        ]
+
+
+@router.post("/api-keys")
+async def create_my_key(data: dict, payload: dict = Depends(require_user)):
+    """Create a new API key for the current user.
+
+    Returns the full key value ONCE — it is never returned again.
     """
+    name = (data or {}).get("name", "").strip() or "My API key"
+    raw_key = create_api_key()
+    async with async_session_maker() as session:
+        ak = APIKey(
+            id=shortuuid.uuid(),
+            key=raw_key,
+            user_id=payload["sub"],
+            name=name,
+            prefix=raw_key[:7],
+            rate_limit_rpm=(data or {}).get("rate_limit_rpm", 60),
+            rate_limit_tpm=(data or {}).get("rate_limit_tpm", 100000),
+            is_active=True,
+        )
+        session.add(ak)
+        await session.commit()
+        return {
+            "id": ak.id,
+            "name": ak.name,
+            "key": raw_key,  # shown ONCE
+            "key_preview": raw_key[:7] + "..." + raw_key[-4:],
+            "is_active": True,
+        }
+
+
+@router.delete("/api-keys/{key_id}")
+async def delete_my_key(key_id: str, payload: dict = Depends(require_user)):
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(APIKey).where(APIKey.id == key_id, APIKey.user_id == payload["sub"])
+        )
+        ak = result.scalar_one_or_none()
+        if not ak:
+            raise HTTPException(status_code=404, detail="API key not found")
+        await session.delete(ak)
+        await session.commit()
+        return {"deleted": True}
+
+
+# ─── Provider Presets (public) ──────────────────────────────
+@router.get("/providers/presets")
+async def list_provider_presets():
     from app.core.provider_presets import list_presets as get_presets
     return get_presets()
 
 
-# ─── Discover models from any base URL + API key ─────────────────────
 class DiscoverBody(BaseModel):
     base_url: str
     api_key: str = ""
     provider_type: str = "openai"
 
-@router.post("/providers/discover")
-async def discover_models(body: DiscoverBody, _: dict = Depends(require_user)):
-    """Hit the provider's /models endpoint with the given base URL + key.
 
-    Returns a list of model ids. The UI calls this when the user pastes
-    a base URL + API key so they see what models are available before saving.
-    Works with ANY OpenAI-compatible endpoint — the user can plug in a
-    custom URL and we'll try to fetch /models and /chat/completions.
-    """
+class TestKeyBody(BaseModel):
+    base_url: str
+    api_key: str = ""
+    model: str = ""
+    provider_type: str = "openai"
+
+
+# ─── Discover models (admin only — protects provider probing) ──
+@router.post("/providers/discover")
+async def discover_models(body: DiscoverBody, _: dict = Depends(require_admin)):
     import httpx
     from app.core.provider_presets import normalize_base_url, PROVIDER_PRESETS as PRESETS
-
     base = normalize_base_url(body.base_url)
-
     headers = {"Content-Type": "application/json"}
     if body.api_key:
-        # Anthropic uses x-api-key + anthropic-version instead of Authorization
         if body.provider_type == "anthropic":
             headers["x-api-key"] = body.api_key
             headers["anthropic-version"] = "2023-06-01"
         else:
             headers["Authorization"] = f"Bearer {body.api_key}"
-
     result = {
-        "ok": False,
-        "base_url": base,
-        "models": [],
-        "error": None,
-        "warning": None,
-        "auth_scheme": (
-            "x-api-key + anthropic-version"
-            if body.provider_type == "anthropic"
-            else "Authorization: Bearer"
-        ),
+        "ok": False, "base_url": base, "models": [],
+        "error": None, "warning": None,
+        "auth_scheme": ("x-api-key + anthropic-version" if body.provider_type == "anthropic" else "Authorization: Bearer"),
     }
-
-    # Try the /models endpoint with a short timeout
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             r = await client.get(f"{base}/models", headers=headers)
             if r.status_code == 200:
                 data = r.json()
                 ids = []
-                # OpenAI / OpenAI-compatible shape: {"data": [{"id": "..."}]}
                 if isinstance(data, dict) and isinstance(data.get("data"), list):
-                    ids = [str(m.get("id") or m.get("name") or "").strip()
-                           for m in data["data"]]
+                    ids = [str(m.get("id") or m.get("name") or "").strip() for m in data["data"]]
                     ids = [i for i in ids if i]
-                # Some gateways use {"models": ["..."]} or just a list
                 elif isinstance(data, dict) and isinstance(data.get("models"), list):
                     ids = [str(x) for x in data["models"] if x]
                 elif isinstance(data, list):
-                    ids = [str(m.get("id") if isinstance(m, dict) else m)
-                           for m in data if m]
+                    ids = [str(m.get("id") if isinstance(m, dict) else m) for m in data if m]
                 if ids:
                     result["ok"] = True
                     result["models"] = ids
@@ -589,7 +820,7 @@ async def discover_models(body: DiscoverBody, _: dict = Depends(require_user)):
             elif r.status_code == 403:
                 result["error"] = "403 Forbidden — the key doesn't have access."
             elif r.status_code == 404:
-                result["warning"] = "No /models endpoint (404). The provider may not support listing — you can still add it manually."
+                result["warning"] = "No /models endpoint (404). The provider may not support listing."
             else:
                 result["error"] = f"{r.status_code}: {r.text[:200]}"
     except httpx.ConnectError as e:
@@ -598,71 +829,33 @@ async def discover_models(body: DiscoverBody, _: dict = Depends(require_user)):
         result["error"] = "Timed out (20s). The base URL may be unreachable from Render."
     except Exception as e:
         result["error"] = f"{type(e).__name__}: {e}"
-
-    # If we couldn't get a model list, return the preset's known models as a fallback
     if not result["models"] and not result["error"]:
         for preset in PRESETS:
             if base.rstrip("/").startswith(preset["base_url"].rstrip("/")):
                 result["models"] = list(preset.get("known_models", []))
-                result["warning"] = (
-                    result["warning"]
-                    or "Could not fetch a model list. Showing the preset's known models — you can edit them before saving."
-                )
+                result["warning"] = result["warning"] or "Showing preset known models — you can edit before saving."
                 break
-
     return result
 
 
-# ─── Quick test: send a tiny chat to verify the key actually works ───
-class TestKeyBody(BaseModel):
-    base_url: str
-    api_key: str = ""
-    model: str = ""
-    provider_type: str = "openai"
-
+# ─── Test key (admin only) ─────────────────────────────────
 @router.post("/providers/test-key")
-async def test_provider_key(body: TestKeyBody, _: dict = Depends(require_user)):
-    """Send a tiny chat completion to confirm the base URL + key actually work.
-
-    This is a real end-to-end check — if the provider replies with a 200 we
-    mark ok=True and return the response. Otherwise we report the exact error.
-    """
+async def test_provider_key(body: TestKeyBody, _: dict = Depends(require_admin)):
     import httpx, time
     from app.core.provider_presets import normalize_base_url
-
     base = normalize_base_url(body.base_url)
     if not body.model:
         return {"ok": False, "error": "No model specified"}
-
     start = time.time()
     try:
         if body.provider_type == "anthropic":
-            # Anthropic Messages API
-            headers = {
-                "x-api-key": body.api_key,
-                "anthropic-version": "2023-06-01",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "model": body.model,
-                "max_tokens": 8,
-                "messages": [{"role": "user", "content": "ping"}],
-            }
+            headers = {"x-api-key": body.api_key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"}
+            payload = {"model": body.model, "max_tokens": 8, "messages": [{"role": "user", "content": "ping"}]}
             url = f"{base}/messages"
         else:
-            # OpenAI-compatible
-            headers = {
-                "Authorization": f"Bearer {body.api_key}" if body.api_key else "",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "model": body.model,
-                "messages": [{"role": "user", "content": "ping"}],
-                "max_tokens": 8,
-                "stream": False,
-            }
+            headers = {"Authorization": f"Bearer {body.api_key}" if body.api_key else "", "Content-Type": "application/json"}
+            payload = {"model": body.model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 8, "stream": False}
             url = f"{base}/chat/completions"
-
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(url, headers=headers, json=payload)
             latency_ms = int((time.time() - start) * 1000)
@@ -674,19 +867,12 @@ async def test_provider_key(body: TestKeyBody, _: dict = Depends(require_user)):
                 else:
                     content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
                 return {
-                    "ok": True,
-                    "latency_ms": latency_ms,
-                    "status_code": 200,
+                    "ok": True, "latency_ms": latency_ms, "status_code": 200,
                     "response_preview": (content[:120] or "(empty content)"),
                     "usage": data.get("usage"),
                 }
             else:
-                return {
-                    "ok": False,
-                    "latency_ms": latency_ms,
-                    "status_code": r.status_code,
-                    "error": r.text[:400],
-                }
+                return {"ok": False, "latency_ms": latency_ms, "status_code": r.status_code, "error": r.text[:400]}
     except httpx.ConnectError as e:
         return {"ok": False, "error": f"Connection failed: {e}"}
     except httpx.TimeoutException:
