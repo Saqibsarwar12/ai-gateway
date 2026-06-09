@@ -5,8 +5,7 @@
   "env": {
     "NEXT_PUBLIC_API_URL": "https://ai-gateway-7dkh.onrender.com"
   },
-  "redirects": [
-    { "source": "/docs", "destination": "https://ai-gateway-7dkh.onrender.com/docs", "permanent": false },
-    { "source": "/openapi.json", "destination": "https://ai-gateway-7dkh.onrender.com/openapi.json", "permanent": false }
+  "rewrites": [
+    { "source": "/openapi.json", "destination": "https://ai-gateway-7dkh.onrender.com/openapi.json" }
   ]
 }
