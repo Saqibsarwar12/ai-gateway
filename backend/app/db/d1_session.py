@@ -119,7 +119,9 @@ def _is_dirty(obj, snapshot: dict) -> bool:
 
 
 def _compile_select(statement: Select) -> tuple:
-    """Compile a SQLAlchemy Select into (sql_string, params_list)."""
+    """Compile a SQLAlchemy Select into (sql_string, params_list).
+    Converts :name placeholders to ? since D1 only supports positional params.
+    """
     try:
         compiled = statement.compile(compile_kwargs={"literal_binds": True})
         return str(compiled), []
