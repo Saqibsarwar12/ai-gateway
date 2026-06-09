@@ -14,9 +14,9 @@ services:
       - key: DEBUG
         value: "false"
       - key: USE_SQLITE
-        value: "true"
-      - key: USE_D1
         value: "false"
+      - key: USE_D1
+        value: "true"
       - key: CF_API_TOKEN
         sync: false
       - key: CF_ACCOUNT_ID
