@@ -186,21 +186,30 @@ class D1Result:
 class D1Session:
     """An async session-like object that delegates to Cloudflare D1.
 
-    Tracks loaded objects by (table:pk_value) for dirty checking.
+    Tracks loaded objects for dirty checking via snapshots.
     At commit(): flushes explicit adds/deletes, then upserts any
     loaded objects that changed from their snapshots.
     """
 
     def __init__(self):
-        self._adds: list = []           # objects to INSERT
-        self._deletes: list = []        # objects to DELETE
-        self._tracked: dict = {}        # "table:pk" → (obj, snapshot)
+        self._adds: list = []       # objects to INSERT
+        self._deletes: list = []    # objects to DELETE
+        self._snapshots: dict = {}  # pk_key -> original snapshot dict
+        self._objects: dict = {}  # pk_key -> object
 
     def _track(self, obj):
-        """Record a snapshot for a loaded object so we can detect changes."""
-        key = _tracking_key(obj)
-        if key:
-            self._tracked[key] = (obj, _snapshot(obj))
+        """Snapshot an object so we can dirty-check at commit time."""
+        key = self._pk_key(obj)
+        if key not in self._snapshots:
+            self._snapshots[key] = _model_to_dict(obj)
+            self._objects[key] = obj
+
+    def _pk_key(self, obj) -> str:
+        """Compute a stable key from the object's primary key."""
+        parts = []
+        for col in obj.__table__.primary_key.columns:
+            parts.append(str(getattr(obj, col.name, "")))
+        return f"{obj.__tablename__}:{':'.join(parts)}"
 
     async def execute(self, statement):
         """Execute a SQLAlchemy Select statement against D1."""
@@ -227,8 +236,9 @@ class D1Session:
         """Flush all pending operations + dirty-check all tracked objects."""
 
         # 1. Dirty-check tracked objects → UPSERT if changed
-        for key, (obj, snapshot) in list(self._tracked.items()):
-            if _is_dirty(obj, snapshot):
+        for key, snapshot in list(self._snapshots.items()):
+            obj = self._objects.get(key)
+            if obj and _is_dirty(obj, snapshot):
                 data = _model_to_dict(obj)
                 sql, params = _upsert_sql(obj.__tablename__, data)
                 await execute(sql, params)
@@ -250,12 +260,12 @@ class D1Session:
 
         self._adds = []
         self._deletes = []
-        self._tracked = {}
+        self._snapshots = {}
 
     async def rollback(self):
         self._adds = []
         self._deletes = []
-        self._tracked = {}
+        self._snapshots = {}
 
     async def close(self):
         pass
