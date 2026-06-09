@@ -1,27 +1,33 @@
-"""Database session — SQLite on Free tier Render, PostgreSQL when available."""
+"""DB session — uses D1 when USE_D1=true, else local SQLite."""
+
 import os
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from app.db.models import Base
 
-USE_SQLITE = os.getenv("USE_SQLITE", "true").lower() == "true"
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+USE_D1 = os.getenv("USE_D1", "").lower() == "true"
 
-if USE_SQLITE or not DATABASE_URL:
-    DB_PATH = os.getenv("DB_PATH", "/tmp/ai_gateway.db")
-    DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH}"
-    engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
+# Always define these so importers don't crash
+async_session_maker = None
+engine = None
+init_db = None
+
+if USE_D1:
+    from app.db.d1_session import D1Session, d1_session_maker as _d1_maker
+
+    async_session_maker = _d1_maker
+
+    async def _init_db_d1():
+        pass
+
+    init_db = _init_db_d1
 else:
-    # Strip +asyncpg suffix if present; aiosqlite requires explicit dialect
-    url = DATABASE_URL
-    if url.startswith("postgresql://"):
-        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    elif url.startswith("postgres://"):
-        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
-    engine = create_async_engine(url, echo=False, pool_pre_ping=True, pool_size=5)
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
-async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./ai_gateway.db")
+    engine = create_async_engine(DATABASE_URL, echo=False)
+    async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
+    async def _init_db_sqlite():
+        from app.db.models import Base
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
-async def get_db() -> AsyncSession:
-    async with async_session_maker() as session:
-        yield session
+    init_db = _init_db_sqlite

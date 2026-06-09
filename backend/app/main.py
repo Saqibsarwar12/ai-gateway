@@ -27,43 +27,42 @@ NEXT_BASE = f"http://localhost:{NEXT_PORT}"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: create / migrate tables
-    from app.db.models import Base
-    from app.db.session import engine
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    from app.db.session import init_db, async_session_maker, USE_D1
+    await init_db()
 
     # Seed default admin
-    from app.db.session import async_session_maker
     from app.db.models import User
     from app.core.auth import hash_password, create_api_key
     from sqlalchemy import select
 
-    async with async_session_maker() as session:
-        result = await session.execute(select(User).where(User.email == settings.ADMIN_EMAIL))
-        admin_user = result.scalar_one_or_none()
-        if not admin_user:
-            api_key = create_api_key()
-            admin_user = User(
-                id="admin-001",
-                name="Admin",
-                email=settings.ADMIN_EMAIL,
-                hashed_password=hash_password(settings.ADMIN_PASSWORD),
-                role="admin",
-                tier="v3",
-                api_key=api_key,
-                credits=999999999,
-                is_active=True,
-            )
-            session.add(admin_user)
-            await session.commit()
-            print(f"Admin created: {settings.ADMIN_EMAIL} / API Key: {api_key}")
-        else:
-            # Always sync password + tier so login works after env-var changes
-            admin_user.hashed_password = hash_password(settings.ADMIN_PASSWORD)
-            admin_user.tier = "v3"
-            admin_user.is_active = True
-            await session.commit()
-            print(f"Admin password refreshed: {settings.ADMIN_EMAIL}")
+    try:
+        async with async_session_maker() as session:
+            result = await session.execute(select(User).where(User.email == settings.ADMIN_EMAIL))
+            admin_user = result.scalar_one_or_none()
+            if not admin_user:
+                api_key = create_api_key()
+                admin_user = User(
+                    id="admin-001",
+                    name="Admin",
+                    email=settings.ADMIN_EMAIL,
+                    hashed_password=hash_password(settings.ADMIN_PASSWORD),
+                    role="admin",
+                    tier="v3",
+                    api_key=api_key,
+                    credits=999999999,
+                    is_active=True,
+                )
+                session.add(admin_user)
+                await session.commit()
+                print(f"Admin created: {settings.ADMIN_EMAIL} / API Key: {api_key}")
+            else:
+                admin_user.hashed_password = hash_password(settings.ADMIN_PASSWORD)
+                admin_user.tier = "v3"
+                admin_user.is_active = True
+                await session.commit()
+                print(f"Admin password refreshed: {settings.ADMIN_EMAIL}")
+    except Exception as e:
+        print(f"WARNING: Admin seed skipped — {e}")
 
     yield
 
