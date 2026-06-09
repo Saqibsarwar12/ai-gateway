@@ -21,15 +21,20 @@ from app.db.cloudflare import fetchall, execute
 
 
 def _model_to_dict(obj) -> dict:
-    """Convert a SQLAlchemy model instance to a flat dict for D1."""
+    """Convert a SQLAlchemy model instance to a flat dict for D1.
+    Includes ALL columns — even None values — so INSERT OR REPLACE
+    doesn't silently NULL out unmentioned columns.
+    """
     data = {}
     for col in obj.__table__.columns:
         val = getattr(obj, col.name, None)
-        if val is not None:
-            if isinstance(val, datetime):
-                val = val.isoformat()
-            elif isinstance(val, (list, dict)):
-                val = json.dumps(val)
+        if val is None:
+            data[col.name] = None
+        elif isinstance(val, datetime):
+            data[col.name] = val.isoformat()
+        elif isinstance(val, (list, dict)):
+            data[col.name] = json.dumps(val)
+        else:
             data[col.name] = val
     return data
 
@@ -87,15 +92,23 @@ def _snapshot(obj) -> dict:
     return snap
 
 
+def _normalize(val):
+    """Normalize a value for dirty-check comparison."""
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val.isoformat()
+    if isinstance(val, (list, dict)):
+        return json.dumps(val, sort_keys=True)
+    return val
+
+
 def _is_dirty(obj, snapshot: dict) -> bool:
     """Check if any column value changed from snapshot."""
     for col in obj.__table__.columns:
-        current = getattr(obj, col.name, None)
+        current = _normalize(getattr(obj, col.name, None))
         old = snapshot.get(col.name)
-        if isinstance(current, (list, dict)):
-            if json.dumps(current) != json.dumps(old):
-                return True
-        elif current != old:
+        if current != old:
             return True
     return False
 
