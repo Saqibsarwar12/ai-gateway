@@ -181,7 +181,7 @@ class D1Result:
             if self.session:
                 self.session._track(obj)
             return obj
-        return row
+        return row  # return raw dict for aggregate queries
 
     def scalars(self):
         return self
@@ -202,6 +202,19 @@ class D1Result:
         if isinstance(row, dict):
             return list(row.values())[0] if row else None
         return row
+
+    def one(self):
+        if not self._rows:
+            raise StopIteration()
+        return self._rows[0]
+
+    def scalar_one(self):
+        """Exactly one row, raise if 0 or >1."""
+        if not self._rows:
+            raise ValueError("No rows found")
+        if len(self._rows) > 1:
+            raise ValueError(f"Expected 1, got {len(self._rows)}")
+        return self._rows[0]
 
 
 class D1Session:
