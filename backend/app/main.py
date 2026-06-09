@@ -30,6 +30,13 @@ async def lifespan(app: FastAPI):
     from app.db.session import init_db, async_session_maker, USE_D1
     await init_db()
 
+    # Test D1 connectivity
+    try:
+        async with async_session_maker() as session:
+            await session.execute("SELECT 1")
+    except Exception as e:
+        print(f"WARNING: D1 connectivity test failed — {e}")
+
     # Seed default admin
     from app.db.models import User
     from app.core.auth import hash_password, create_api_key

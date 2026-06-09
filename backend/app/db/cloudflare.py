@@ -14,20 +14,23 @@ async def query(sql: str, params: list = None):
     Returns list of dicts."""
     if not CF_API_TOKEN:
         raise RuntimeError("CF_API_TOKEN env var not set")
-    headers = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
-    body = {"sql": sql}
-    if params:
-        body["params"] = params
-    url = f"{D1_URL}/query"
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(url, headers=headers, json=body)
-    data = resp.json()
-    if not data.get("success"):
-        raise RuntimeError(f"D1 error: {data.get('errors')}")
-    rows = []
-    for r in (data.get("result") or []):
-        rows.extend(r.get("results") or [])
-    return rows
+    try:
+        headers = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
+        body = {"sql": sql}
+        if params:
+            body["params"] = params
+        url = f"{D1_URL}/query"
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(url, headers=headers, json=body)
+        data = resp.json()
+        if not data.get("success"):
+            raise RuntimeError(f"D1 error: {data.get('errors')}")
+        rows = []
+        for r in (data.get("result") or []):
+            rows.extend(r.get("results") or [])
+        return rows
+    except Exception as e:
+        raise RuntimeError(f"D1 query failed: {e}") from e
 
 async def execute(sql: str, params: list = None):
     """Execute a non-SELECT statement (INSERT, UPDATE, DELETE, CREATE)."""

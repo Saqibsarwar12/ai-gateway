@@ -119,18 +119,16 @@ def _is_dirty(obj, snapshot: dict) -> bool:
 
 
 def _compile_select(statement: Select) -> tuple:
-    """Compile a SQLAlchemy Select into (sql_string, params_list).
-    Converts :name placeholders to ? since D1 only supports positional params.
-    """
-    try:
-        compiled = statement.compile(compile_kwargs={"literal_binds": True})
-        return str(compiled), []
-    except Exception:
-        compiled = statement.compile()
-        sql = str(compiled)
-        params = compiled.params if hasattr(compiled, "params") and compiled.params else {}
-        param_list = list(params.values()) if params else []
-        return sql, param_list
+    """Compile a SQLAlchemy Select for D1. Always uses ? placeholders."""
+    compiled = statement.compile()
+    sql = str(compiled)
+    # Convert :param_name → ? for D1 positional binding
+    import re
+    sql = re.sub(r':[a-zA-Z_]\w*', '?', sql)
+    # Get params in order
+    params = compiled.params if hasattr(compiled, 'params') and compiled.params else {}
+    param_list = list(params.values()) if params else []
+    return sql, param_list
 
 
 def _extract_model(statement):
