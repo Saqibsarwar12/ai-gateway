@@ -31,3 +31,12 @@ else:
             await conn.run_sync(Base.metadata.create_all)
 
     init_db = _init_db_sqlite
+
+
+async def get_db():
+    """FastAPI dependency — yields a session (use with Depends)."""
+    session = async_session_maker()
+    try:
+        yield session
+    finally:
+        await session.close()
