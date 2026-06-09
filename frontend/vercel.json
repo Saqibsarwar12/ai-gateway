@@ -4,31 +4,5 @@
   "installCommand": "npm install",
   "env": {
     "NEXT_PUBLIC_API_URL": ""
-  },
-  "rewrites": [
-    { "source": "/admin/auth/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/admin/auth/:path*" },
-    { "source": "/admin/users/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/admin/users/:path*" },
-    { "source": "/admin/users", "destination": "https://ai-gateway-7dkh.onrender.com/admin/users" },
-    { "source": "/admin/providers/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/admin/providers/:path*" },
-    { "source": "/admin/providers", "destination": "https://ai-gateway-7dkh.onrender.com/admin/providers" },
-    { "source": "/admin/models/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/admin/models/:path*" },
-    { "source": "/admin/models", "destination": "https://ai-gateway-7dkh.onrender.com/admin/models" },
-    { "source": "/admin/routing/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/admin/routing/:path*" },
-    { "source": "/admin/routing", "destination": "https://ai-gateway-7dkh.onrender.com/admin/routing" },
-    { "source": "/admin/analytics", "destination": "https://ai-gateway-7dkh.onrender.com/admin/analytics" },
-    { "source": "/admin/api-keys/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/admin/api-keys/:path*" },
-    { "source": "/admin/api-keys", "destination": "https://ai-gateway-7dkh.onrender.com/admin/api-keys" },
-    { "source": "/admin/playground", "destination": "https://ai-gateway-7dkh.onrender.com/admin/playground" },
-    { "source": "/admin/stats", "destination": "https://ai-gateway-7dkh.onrender.com/admin/stats" },
-    { "source": "/admin/public/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/admin/public/:path*" },
-    { "source": "/admin/logs", "destination": "https://ai-gateway-7dkh.onrender.com/admin/logs" },
-    { "source": "/admin/providers/presets", "destination": "https://ai-gateway-7dkh.onrender.com/admin/providers/presets" },
-    { "source": "/admin/providers/discover", "destination": "https://ai-gateway-7dkh.onrender.com/admin/providers/discover" },
-    { "source": "/admin/providers/test-key", "destination": "https://ai-gateway-7dkh.onrender.com/admin/providers/test-key" },
-    { "source": "/v1/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/v1/:path*" },
-    { "source": "/v2/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/v2/:path*" },
-    { "source": "/v3/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/v3/:path*" },
-    { "source": "/health", "destination": "https://ai-gateway-7dkh.onrender.com/health" },
-    { "source": "/openapi.json", "destination": "https://ai-gateway-7dkh.onrender.com/openapi.json" }
-  ]
+  }
 }
