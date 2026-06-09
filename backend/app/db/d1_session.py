@@ -128,6 +128,8 @@ def _compile_select(statement: Select) -> tuple:
     # Get params in order
     params = compiled.params if hasattr(compiled, 'params') and compiled.params else {}
     param_list = list(params.values()) if params else []
+    # Convert datetime params to ISO strings for JSON-serializable D1 REST API
+    param_list = [p.isoformat() if isinstance(p, datetime) else p for p in param_list]
     return sql, param_list
 
 
@@ -144,11 +146,12 @@ def _extract_model(statement):
     return None
 
 
-def _is_count_query(statement):
-    """Detect if this is a COUNT(*) query."""
+def _is_aggregate_query(statement):
+    """Detect if this is an aggregate query (COUNT, SUM, AVG, etc.).
+    These return a single scalar value, not mapped objects."""
     for cd in statement.column_descriptions or []:
         expr = cd.get("expr")
-        if expr is not None and hasattr(expr, "name") and expr.name == "count":
+        if expr is not None and hasattr(expr, "name") and expr.name in ("count", "sum", "avg", "min", "max"):
             return True
     return False
 
@@ -233,11 +236,11 @@ class D1Session:
         """Execute a SQLAlchemy Select statement against D1."""
         if isinstance(statement, Select):
             model_class = _extract_model(statement)
-            is_count = _is_count_query(statement)
+            is_agg = _is_aggregate_query(statement)
             sql, params = _compile_select(statement)
             rows = await fetchall(sql, params if params else None)
-            result = D1Result(rows, None if is_count else model_class)
-            if model_class and not is_count:
+            result = D1Result(rows, None if is_agg else model_class)
+            if model_class and not is_agg:
                 result.session = self
             return result
         raise ValueError(f"Unsupported statement type: {type(statement)}")
