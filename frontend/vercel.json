@@ -4,8 +4,5 @@
   "installCommand": "npm install",
   "env": {
     "NEXT_PUBLIC_API_URL": ""
-  },
-  "rewrites": [
-    { "source": "/admin/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/admin/:path*" }
-  ]
+  }
 }
