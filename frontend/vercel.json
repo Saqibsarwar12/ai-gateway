@@ -3,9 +3,9 @@
   "buildCommand": "next build",
   "installCommand": "npm install",
   "env": {
-    "NEXT_PUBLIC_API_URL": "https://ai-gateway-7dkh.onrender.com"
+    "NEXT_PUBLIC_API_URL": ""
   },
   "rewrites": [
-    { "source": "/openapi.json", "destination": "https://ai-gateway-7dkh.onrender.com/openapi.json" }
+    { "source": "/admin/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/admin/:path*" }
   ]
 }
