@@ -24,18 +24,19 @@ def _model_to_dict(obj) -> dict:
     """Convert a SQLAlchemy model instance to a flat dict for D1.
     Includes ALL columns — even None values — so INSERT OR REPLACE
     doesn't silently NULL out unmentioned columns.
+    Booleans → 0/1 (SQLAlchemy emits WHERE col=1 for bool comparisons).
     """
     data = {}
     for col in obj.__table__.columns:
         val = getattr(obj, col.name, None)
-        if val is None:
-            data[col.name] = None
-        elif isinstance(val, datetime):
-            data[col.name] = val.isoformat()
-        elif isinstance(val, (list, dict)):
-            data[col.name] = json.dumps(val)
-        else:
-            data[col.name] = val
+        if val is not None:
+            if isinstance(val, datetime):
+                val = val.isoformat()
+            elif isinstance(val, bool):
+                val = 1 if val else 0
+            elif isinstance(val, (list, dict)):
+                val = json.dumps(val)
+        data[col.name] = val
     return data
 
 
@@ -49,11 +50,15 @@ def _row_to_model(row: dict, model_class):
                 from sqlalchemy import DateTime, JSON, Boolean, Integer, Float
                 col_type = col.type
                 if isinstance(col_type, DateTime) and isinstance(val, str):
-                    val = datetime.fromisoformat(val.replace("Z", "+00:00"))
+                    val = datetime.fromisoformat(val.replace('Z', '+00:00'))
                 elif isinstance(col_type, JSON) and isinstance(val, str):
                     val = json.loads(val)
                 elif isinstance(col_type, Boolean):
-                    val = bool(val)
+                    # D1 stores booleans as 0/1 (our convention) or "true"/"false" (legacy)
+                    if isinstance(val, str):
+                        val = val.lower() in ("1", "true")
+                    else:
+                        val = bool(int(val))
                 elif isinstance(col_type, Integer):
                     val = int(val)
                 elif isinstance(col_type, Float):
