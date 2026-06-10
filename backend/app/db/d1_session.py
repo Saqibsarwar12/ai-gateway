@@ -262,7 +262,7 @@ class D1Session:
         """Queue an INSERT (or REPLACE)."""
         self._adds.append(obj)
 
-    def delete(self, obj):
+    async def delete(self, obj):
         """Queue a DELETE."""
         self._deletes.append(obj)
 
