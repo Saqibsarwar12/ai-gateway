@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth';
 import { API_BASE_URL } from '@/lib/api';
 import { Card, Loader, ErrorState, Select, Stat } from '@/components/UI';
 import type { RequestLog } from '@/lib/api';
+import { useRouter } from 'next/navigation';
 
 type Analytics = {
   total_requests: number;
@@ -17,12 +18,21 @@ type Analytics = {
 };
 
 export default function AnalyticsPage() {
-  const { token, apiKey } = useAuth();
+  const { token, apiKey, user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const router = useRouter();
   const [stats, setStats] = useState<Analytics | null>(null);
   const [logs, setLogs] = useState<RequestLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState('7');
+
+  useEffect(() => {
+    if (!isAdmin) {
+      router.replace('/admin');
+      return;
+    }
+  }, [isAdmin, router]);
 
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -48,10 +58,14 @@ export default function AnalyticsPage() {
     }
   }
   useEffect(() => {
+    if (!isAdmin) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [days, token, apiKey]);
+  }, [days, token, apiKey, isAdmin]);
 
+  if (!isAdmin) {
+    return <Loader label="Redirecting..." />;
+  }
   if (loading) return <Loader label="Loading analytics" />;
   if (error) return <ErrorState error={error} onRetry={load} />;
 

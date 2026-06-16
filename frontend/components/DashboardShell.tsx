@@ -5,15 +5,15 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { useEffect, useState, ReactNode } from 'react';
 
-const NAV = [
+const NAV: { href: string; label: string; glyph: string; adminOnly?: boolean }[] = [
   { href: '/admin', label: 'Overview', glyph: '◐' },
   { href: '/admin/providers', label: 'Providers', glyph: '◇' },
-  { href: '/admin/routing', label: 'Routing', glyph: '↯' },
+  { href: '/admin/routing', label: 'Routing', glyph: '↯', adminOnly: true },
   { href: '/admin/models', label: 'Models', glyph: '◎' },
   { href: '/admin/playground', label: 'Playground', glyph: '✦' },
-  { href: '/admin/logs', label: 'Request Logs', glyph: '≡' },
-  { href: '/admin/analytics', label: 'Analytics', glyph: '◓' },
-  { href: '/admin/users', label: 'Users & Keys', glyph: '◉' },
+  { href: '/admin/logs', label: 'Request Logs', glyph: '≡', adminOnly: true },
+  { href: '/admin/analytics', label: 'Analytics', glyph: '◓', adminOnly: true },
+  { href: '/admin/users', label: 'Users & Keys', glyph: '◉', adminOnly: true },
   { href: '/admin/settings', label: 'Settings', glyph: '✧' },
 ];
 
@@ -21,6 +21,8 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const visibleNav = NAV.filter((item) => !item.adminOnly || isAdmin);
   const [time, setTime] = useState<string>('');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
@@ -105,7 +107,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
           <div className="text-xs mono" style={{ padding: '0 0.625rem 0.5rem', color: 'var(--fg-2)', letterSpacing: '0.18em', textTransform: 'uppercase' }}>
             Navigation
           </div>
-          {NAV.map((item) => {
+          {visibleNav.map((item) => {
             const active = isActive(item.href);
             return (
               <Link
@@ -133,7 +135,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
           <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--line)' }}>
             <div className="text-xs mono wrap" style={{ color: 'var(--fg-1)' }}>{user?.email}</div>
             <div className="between" style={{ marginTop: '0.25rem' }}>
-              <span className="text-xs mono" style={{ color: 'var(--fg-0)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>{user?.role}</span>
+              <span className="text-xs mono" style={{ color: 'var(--fg-0)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>{user?.role === 'admin' ? 'ADMIN' : 'USER CONSOLE'}</span>
               <button
                 onClick={() => { logout(); router.push('/login'); }}
                 className="text-xs mono hover-fg"
@@ -156,7 +158,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
             >≡</button>
             <span className="mono" style={{ fontSize: '1rem' }}>ai-gateway</span>
           </div>
-          <span className="text-xs mono" style={{ color: 'var(--fg-2)' }}>{user?.role}</span>
+          <span className="text-xs mono" style={{ color: 'var(--fg-2)' }}>{user?.role === 'admin' ? 'ADMIN' : 'USER CONSOLE'}</span>
         </div>
         <div style={{ flex: 1 }}>{children}</div>
       </main>

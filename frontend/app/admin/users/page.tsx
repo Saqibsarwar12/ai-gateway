@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { API_BASE_URL } from '@/lib/api';
 import {
@@ -13,18 +14,28 @@ import {
   Modal,
   Badge,
 } from '@/components/UI';
-import type { User } from '@/lib/api';
+import type { User, UserResponse } from '@/lib/api';
 
 type UserWithTier = User & { tier?: string };
 
 export default function UsersPage() {
-  const { token, apiKey, user: me } = useAuth();
-  const [users, setUsers] = useState<UserWithTier[]>([]);
+  const { token, apiKey, user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const router = useRouter();
+  const [users, setUsers] = useState<UserResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState('');
+  const [editing, setEditing] = useState<UserResponse | null>(null);
+  const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [editingTier, setEditingTier] = useState<UserWithTier | null>(null);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      router.replace('/admin');
+      return;
+    }
+  }, [isAdmin, router]);
 
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -44,9 +55,14 @@ export default function UsersPage() {
     }
   }
   useEffect(() => {
+    if (!isAdmin) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, apiKey]);
+  }, [token, apiKey, isAdmin]);
+
+  if (!isAdmin) {
+    return <Loader label="Redirecting..." />;
+  }
 
   async function toggleActive(u: UserWithTier) {
     await fetch(`${API_BASE_URL}/admin/users/${u.id}`, {
@@ -69,14 +85,14 @@ export default function UsersPage() {
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify({ tier }),
     });
-    setEditingTier(null);
+    setEditing(null);
     load();
   }
 
   function copyKey(key: string, id: string) {
     navigator.clipboard.writeText(key);
-    setCopiedKey(id);
-    setTimeout(() => setCopiedKey(null), 1500);
+    setCopiedKeyId(id);
+    setTimeout(() => setCopiedKeyId(null), 1500);
   }
 
   const tierVariant = (tier?: string) => {
@@ -98,7 +114,7 @@ export default function UsersPage() {
             {users.length} users · {users.filter((u) => u.is_active).length} active · {users.filter((u) => u.role === 'admin').length} admin
           </p>
         </div>
-        {me?.role === 'admin' && (
+        {user?.role === 'admin' && (
           <Button variant="primary" onClick={() => setShowNew(true)}>
             + Add user
           </Button>
@@ -135,9 +151,9 @@ export default function UsersPage() {
                     <td>
                       <div className="row" style={{ gap: '0.375rem', alignItems: 'center' }}>
                         <Badge variant={tierVariant(u.tier)}>{u.tier || 'v1'}</Badge>
-                        {me?.role === 'admin' && u.id !== me.id && (
+                        {user?.role === 'admin' && u.id !== user.id && (
                           <button
-                            onClick={() => setEditingTier(u)}
+                            onClick={() => setEditing(u)}
                             className="text-xs dim hover-fg mono"
                             style={{ padding: '0.125rem 0.375rem', border: '1px solid var(--line)', borderRadius: 2 }}
                           >
@@ -158,7 +174,7 @@ export default function UsersPage() {
                             className="btn-ghost"
                             style={{ padding: '0.125rem 0.5rem', fontSize: '0.6875rem', borderRadius: 4 }}
                           >
-                            {copiedKey === u.id ? '✓ copied' : 'Copy'}
+                            {copiedKeyId === u.id ? '✓ copied' : 'Copy'}
                           </button>
                         </div>
                       ) : (
@@ -169,7 +185,7 @@ export default function UsersPage() {
                       {u.is_active ? <Badge variant="ok">active</Badge> : <Badge variant="mute">disabled</Badge>}
                     </td>
                     <td>
-                      {me?.role === 'admin' && u.id !== me.id && (
+                      {user?.role === 'admin' && u.id !== user.id && (
                         <div className="row" style={{ justifyContent: 'flex-end' }}>
                           <Button variant="ghost" size="sm" onClick={() => toggleActive(u)}>
                             {u.is_active ? 'Disable' : 'Enable'}
@@ -189,11 +205,11 @@ export default function UsersPage() {
       </Card>
 
       {/* Tier upgrade modal */}
-      {editingTier && (
+      {editing && (
         <TierModal
-          user={editingTier}
-          onClose={() => setEditingTier(null)}
-          onSave={(tier) => updateTier(editingTier, tier)}
+          user={editing}
+          onClose={() => setEditing(null)}
+          onSave={(tier) => updateTier(editing, tier)}
         />
       )}
 

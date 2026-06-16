@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { API_BASE_URL } from '@/lib/api';
 import { Card, Loader, ErrorState, Button, Input, Select, Modal, Badge } from '@/components/UI';
@@ -29,7 +30,9 @@ const PRESETS: Record<string, string> = {
 };
 
 export default function ProvidersPage() {
-  const { token, apiKey } = useAuth();
+  const { token, apiKey, user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const router = useRouter();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,9 +60,13 @@ export default function ProvidersPage() {
     }
   }
   useEffect(() => {
+    if (!isAdmin) {
+      router.replace('/admin');
+      return;
+    }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, apiKey]);
+  }, [isAdmin, token, apiKey, router]);
 
   async function deleteProvider(id: string) {
     if (!confirm('Delete this provider? Models routed to it will be unavailable.')) return;
@@ -90,6 +97,7 @@ export default function ProvidersPage() {
     setSyncingId(null);
   }
 
+  if (!isAdmin) return null;
   if (loading) return <Loader label="Loading providers" />;
   if (error) return <ErrorState error={error} onRetry={load} />;
 

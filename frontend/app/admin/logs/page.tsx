@@ -1,13 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { API_BASE_URL } from '@/lib/api';
 import { Card, Loader, ErrorState, Input, Select } from '@/components/UI';
 import type { RequestLog } from '@/lib/api';
 
 export default function LogsPage() {
-  const { token, apiKey } = useAuth();
+  const { token, apiKey, user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const router = useRouter();
   const [logs, setLogs] = useState<RequestLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -32,10 +35,15 @@ export default function LogsPage() {
     }
   }
   useEffect(() => {
+    if (!isAdmin) {
+      router.replace('/admin');
+      return;
+    }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, apiKey]);
+  }, [isAdmin, router, token, apiKey]);
 
+  if (!isAdmin) return null;
   if (loading) return <Loader label="Loading logs" />;
   if (error) return <ErrorState error={error} onRetry={load} />;
 

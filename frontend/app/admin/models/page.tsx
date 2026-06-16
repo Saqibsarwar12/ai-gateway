@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { API_BASE_URL } from '@/lib/api';
 import { Card, Loader, ErrorState, Input, Select, Button, Badge, Modal } from '@/components/UI';
@@ -14,7 +15,9 @@ type ModelRow = {
 };
 
 export default function ModelsPage() {
-  const { token, apiKey } = useAuth();
+  const { token, apiKey, user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const router = useRouter();
   const [models, setModels] = useState<ModelRow[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,9 +48,13 @@ export default function ModelsPage() {
     }
   }
   useEffect(() => {
+    if (!isAdmin) {
+      router.replace('/admin');
+      return;
+    }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, apiKey]);
+  }, [isAdmin, token, apiKey, router]);
 
   async function sync(p: Provider) {
     setSyncing(p.id);
@@ -70,6 +77,7 @@ export default function ModelsPage() {
     });
   }, [models, query, providerFilter]);
 
+  if (!isAdmin) return null;
   if (loading) return <Loader label="Loading models" />;
   if (error) return <ErrorState error={error} onRetry={load} />;
 

@@ -228,6 +228,9 @@ export type User = {
   is_active: boolean;
   api_key?: string;
   created_at: string;
+  tier?: string;
 };
+
+export type UserResponse = User;
 
 export const API_BASE_URL = API_BASE;
