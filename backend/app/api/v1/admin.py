@@ -267,6 +267,57 @@ async def list_providers(payload: dict = Depends(require_user)):
         return out
 
 
+async def _sync_manual_models(session, provider_id: str, models_list: List[str]):
+    """Reconcile the Model table with the provider's `models` JSON list.
+
+    - Creates rows for any IDs not yet in the table.
+    - Updates existing rows whose name changed.
+    - DELETES rows whose model_id is no longer in the list (so admin removals
+      propagate to users — without this, /admin/models and /v1/models keep
+      showing deleted models).
+    """
+    desired = [str(m).strip() for m in (models_list or []) if str(m).strip()]
+
+    # Existing rows for this provider
+    existing_rows = (
+        await session.execute(select(Model).where(Model.provider_id == provider_id))
+    ).scalars().all()
+    by_mid = {m.model_id: m for m in existing_rows}
+
+    created = updated = 0
+    for mid_str in desired:
+        m = by_mid.get(mid_str)
+        if m:
+            if m.name != mid_str:
+                m.name = mid_str
+                updated += 1
+        else:
+            session.add(Model(
+                id=shortuuid.uuid(),
+                name=mid_str,
+                provider_id=provider_id,
+                model_id=mid_str,
+                mode="chat",
+                input_cost_per_1m=0.0,
+                output_cost_per_1m=0.0,
+                context_window=8192,
+                supports_functions=False,
+                supports_vision=False,
+                enabled=True,
+                is_active=True,
+            ))
+            created += 1
+
+    # Delete rows no longer in the list
+    desired_set = set(desired)
+    for row in existing_rows:
+        if row.model_id not in desired_set:
+            await session.delete(row)
+
+    await session.commit()
+    return {"created": created, "updated": updated, "removed": len(existing_rows) - len(desired_set)}
+
+
 @router.post("/providers", response_model=ProviderResponse)
 async def create_provider(data: ProviderCreate, _: dict = Depends(require_admin)):
     async with async_session_maker() as session:
@@ -287,6 +338,7 @@ async def create_provider(data: ProviderCreate, _: dict = Depends(require_admin)
         )
         session.add(p)
         await session.commit()
+        await _sync_manual_models(session, p.id, data.models)
         r = ProviderResponse.model_validate(p)
         if r.api_key:
             r.api_key = r.api_key[:6] + "…" + r.api_key[-4:] if len(r.api_key) > 12 else "•••"
@@ -305,6 +357,8 @@ async def update_provider(provider_id: str, data: ProviderUpdate, _: dict = Depe
             setattr(p, key, value)
         p.updated_at = datetime.utcnow()
         await session.commit()
+        if data.models is not None:
+            await _sync_manual_models(session, p.id, data.models)
         r = ProviderResponse.model_validate(p)
         if r.api_key:
             r.api_key = r.api_key[:6] + "…" + r.api_key[-4:] if len(r.api_key) > 12 else "•••"
@@ -318,6 +372,10 @@ async def delete_provider(provider_id: str, _: dict = Depends(require_admin)):
         p = result.scalar_one_or_none()
         if not p:
             raise HTTPException(status_code=404, detail="Provider not found")
+        # Cascade: delete all Model rows belonging to this provider so users
+        # can't keep calling models that no longer exist.
+        from sqlalchemy import delete as _delete
+        await session.execute(_delete(Model).where(Model.provider_id == provider_id))
         await session.delete(p)
         await session.commit()
         return {"deleted": True}
@@ -338,7 +396,11 @@ async def test_provider(provider_id: str, _: dict = Depends(require_admin)):
 
 @router.post("/providers/{provider_id}/sync-models")
 async def sync_provider_models(provider_id: str, _: dict = Depends(require_admin)):
-    """Fetch models from the provider's /models endpoint and create Model rows."""
+    """Fetch models from the provider's /models endpoint and reconcile.
+
+    Reconciles the Model table to match the upstream: creates missing rows,
+    updates renamed ones, and DELETES rows that are no longer advertised.
+    """
     async with async_session_maker() as session:
         result = await session.execute(select(Provider).where(Provider.id == provider_id))
         p = result.scalar_one_or_none()
@@ -353,39 +415,17 @@ async def sync_provider_models(provider_id: str, _: dict = Depends(require_admin
         if not remote_ids:
             remote_ids = list(p.models or [])
 
-        created, updated = 0, 0
-        now = datetime.utcnow()
-        for mid in remote_ids:
-            mid_str = str(mid).strip()
-            if not mid_str:
-                continue
-            existing = await session.execute(
-                select(Model).where(Model.provider_id == provider_id, Model.model_id == mid_str)
-            )
-            m = existing.scalar_one_or_none()
-            if m:
-                m.name = mid_str
-                updated += 1
-            else:
-                session.add(Model(
-                    id=shortuuid.uuid(),
-                    name=mid_str,
-                    provider_id=provider_id,
-                    model_id=mid_str,
-                    mode="chat",
-                    input_cost_per_1m=0.0,
-                    output_cost_per_1m=0.0,
-                    context_window=8192,
-                    supports_functions=False,
-                    supports_vision=False,
-                    enabled=True,
-                    is_active=True,
-                ))
-                created += 1
+        summary = await _sync_manual_models(session, p.id, remote_ids)
         p.models = remote_ids
-        p.updated_at = now
+        p.updated_at = datetime.utcnow()
         await session.commit()
-        return {"created": created, "updated": updated, "total": len(remote_ids), "models": remote_ids}
+        return {
+            "created": summary["created"],
+            "updated": summary["updated"],
+            "removed": summary["removed"],
+            "total": len(remote_ids),
+            "models": remote_ids,
+        }
 
 
 # ─── Routing Rules (admin only) ──────────────────────────────
@@ -725,6 +765,13 @@ async def create_my_key(data: dict, payload: dict = Depends(require_user)):
     name = (data or {}).get("name", "").strip() or "My API key"
     raw_key = create_api_key()
     async with async_session_maker() as session:
+        # Check if user already has 5 or more keys
+        count_result = await session.execute(
+            select(func.count(APIKey.id)).where(APIKey.user_id == payload["sub"])
+        )
+        if (count_result.scalar() or 0) >= 5:
+            raise HTTPException(status_code=400, detail="You can only have up to 5 API keys.")
+
         ak = APIKey(
             id=shortuuid.uuid(),
             key=raw_key,

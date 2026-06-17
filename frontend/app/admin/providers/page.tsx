@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { API_BASE_URL } from '@/lib/api';
-import { Card, Loader, ErrorState, Button, Input, Select, Modal, Badge } from '@/components/UI';
+import { Card, Loader, ErrorState, Button, Input, Select, Modal, Badge, Textarea } from '@/components/UI';
 import type { Provider } from '@/lib/api';
+import { useRouter } from 'next/navigation';
 
 const PROVIDER_TYPES = [
   { v: 'openai', l: 'OpenAI / compatible' },
@@ -60,13 +60,13 @@ export default function ProvidersPage() {
     }
   }
   useEffect(() => {
-    if (!isAdmin) {
+    if (user && !isAdmin) {
       router.replace('/admin');
       return;
     }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin, token, apiKey, router]);
+  }, [token, apiKey, isAdmin, user, router]);
 
   async function deleteProvider(id: string) {
     if (!confirm('Delete this provider? Models routed to it will be unavailable.')) return;
@@ -97,7 +97,6 @@ export default function ProvidersPage() {
     setSyncingId(null);
   }
 
-  if (!isAdmin) return null;
   if (loading) return <Loader label="Loading providers" />;
   if (error) return <ErrorState error={error} onRetry={load} />;
 
@@ -231,6 +230,7 @@ function ProviderForm({
   const [models, setModels] = useState((initial?.models || []).join(', '));
   const [priority, setPriority] = useState(initial?.priority ?? 100);
   const [enabled, setEnabled] = useState(initial?.is_active !== false && initial?.enabled !== false);
+  const [extraData, setExtraData] = useState(initial?.extra_data ? JSON.stringify(initial.extra_data, null, 2) : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -253,6 +253,7 @@ function ProviderForm({
         priority,
         enabled,
         is_active: enabled,
+        extra_data: extraData ? JSON.parse(extraData) : {},
       };
       const url = initial
         ? `${API_BASE_URL}/admin/providers/${initial.id}`
@@ -320,7 +321,17 @@ function ProviderForm({
             </label>
           </div>
         </div>
-        {error && <div className="error-box text-sm wrap mono">{error}</div>}
+        
+        {providerType === 'custom' && (
+          <Textarea
+            label="Custom Configuration (JSON)"
+            value={extraData}
+            onChange={setExtraData}
+            placeholder='{"prompt_key": "prompt", "response_path": ["data", "text"]}'
+            hint="Define how to map the OpenAI request to this custom endpoint."
+          />
+        )}
+{error && <div className="error-box text-sm wrap mono">{error}</div>}
         <div className="row" style={{ justifyContent: 'flex-end' }}>
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel

@@ -111,7 +111,7 @@ export default function HomePage() {
                 <div className="font-mono text-[10px] tracking-[0.2em] uppercase" style={{ color: t.color }}>{t.tier}</div>
               </div>
               <p className="mt-4 text-sm text-[#8a8275] leading-relaxed">{t.desc}</p>
-              <div className="mt-6 font-mono text-[10px] text-[#6b6358] tracking-wider uppercase">base_url = https://saki-gateway.indevs.in/{t.v}</div>
+              <div className="mt-6 font-mono text-[10px] text-[#6b6358] tracking-wider uppercase">base_url = https://ai-gateway-7dkh.onrender.com/{t.v}</div>
             </div>
           ))}
         </div>
@@ -122,7 +122,7 @@ export default function HomePage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-[#14110f] border border-[#2a2520] p-6">
             <div className="font-mono text-[10px] text-[#6b6358] tracking-wider uppercase mb-3">cURL</div>
-            <pre className="font-mono text-xs text-[#d4cdbf] overflow-x-auto whitespace-pre-wrap break-all">{`curl -X POST https://saki-gateway.indevs.in/v1/chat/completions \\
+            <pre className="font-mono text-xs text-[#d4cdbf] overflow-x-auto whitespace-pre-wrap break-all">{`curl -X POST https://ai-gateway-7dkh.onrender.com/v1/chat/completions \\
   -H "Authorization: Bearer sk-your-key" \\
   -H "Content-Type: application/json" \\
   -d '{"model":"auto","messages":[{"role":"user","content":"hello"}]}'`}</pre>
@@ -131,7 +131,7 @@ export default function HomePage() {
             <div className="font-mono text-[10px] text-[#6b6358] tracking-wider uppercase mb-3">Python (openai SDK)</div>
             <pre className="font-mono text-xs text-[#d4cdbf] overflow-x-auto whitespace-pre-wrap break-all">{`from openai import OpenAI
 client = OpenAI(
-    base_url="https://saki-gateway.indevs.in/v1",
+    base_url="https://ai-gateway-7dkh.onrender.com/v1",
     api_key="sk-your-key",
 )
 resp = client.chat.completions.create(
