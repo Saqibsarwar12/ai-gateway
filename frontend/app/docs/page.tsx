@@ -1,6 +1,6 @@
 "use client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://ai-gateway-7dkh.onrender.com';
 
 export default function DocsPage() {
   return (

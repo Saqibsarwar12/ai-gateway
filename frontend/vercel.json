@@ -2,7 +2,13 @@
   "framework": "nextjs",
   "buildCommand": "next build",
   "installCommand": "npm install",
-  "env": {
-    "NEXT_PUBLIC_API_URL": ""
-  }
+  "rewrites": [
+    { "source": "/v1/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/v1/:path*" },
+    { "source": "/v2/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/v2/:path*" },
+    { "source": "/v3/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/v3/:path*" },
+    { "source": "/admin/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/admin/:path*" },
+    { "source": "/api-proxy/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/:path*" },
+    { "source": "/health", "destination": "https://ai-gateway-7dkh.onrender.com/health" },
+    { "source": "/openapi.json", "destination": "https://ai-gateway-7dkh.onrender.com/openapi.json" }
+  ]
 }
