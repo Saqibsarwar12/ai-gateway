@@ -167,6 +167,8 @@ export type Provider = {
   is_healthy: boolean;
   max_rpm: number;
   max_tpm: number;
+  extra_data?: Record<string, any> | null;
+  extraData?: string;
   created_at: string;
   updated_at: string;
 };
