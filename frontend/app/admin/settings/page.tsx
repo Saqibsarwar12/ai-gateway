@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useAuth } from '@/lib/auth';
-import { API_BASE_URL } from '@/lib/api';
 import { Card, Button, Input, Modal, Badge } from '@/components/UI';
 
 export default function SettingsPage() {
