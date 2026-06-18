@@ -75,6 +75,11 @@ export const apiDeleteRoutingRule = (id: string) => del(`/admin/routing/${id}`);
 export const apiListLogs = (limit = 100) =>
   get<RequestLog[]>(`/admin/logs?limit=${limit}`);
 
+// ─── API Keys ────────────────────────────────────────────────────────────
+export const apiListMyKeys = () => get<any[]>("/admin/api-keys");
+export const apiCreateMyKey = (data: { name: string; rate_limit_rpm?: number }) => post<any>("/admin/api-keys", data);
+export const apiDeleteMyKey = (id: string) => del("/admin/api-keys/" + id);
+
 // ─── Users ───────────────────────────────────────────────────────────────
 export const apiListUsers = () => get<User[]>('/admin/users');
 export const apiCreateUser = (data: any) => post<User>('/admin/users', data);

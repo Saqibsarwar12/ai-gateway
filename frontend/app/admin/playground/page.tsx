@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth';
+import { API_BASE_URL } from '@/lib/api';
 import { Card, Loader, Select, Button, Badge, Textarea, Input } from '@/components/UI';
 
 type Msg = { role: 'user' | 'assistant' | 'system'; content: string };
@@ -30,7 +31,7 @@ export default function PlaygroundPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch('/v1/models')
+    fetch(`${API_BASE_URL}/v1/models`)
       .then((r) => r.json())
       .then((j) => {
         const list: OpenAIModel[] = j.data || [];
@@ -58,7 +59,7 @@ export default function PlaygroundPage() {
       if (token) headers['Authorization'] = `Bearer ${token}`;
       else if (apiKey) headers['X-API-Key'] = apiKey;
       const sysMsgs: Msg[] = system ? [{ role: 'system', content: system }] : [];
-      const r = await fetch('/v1/chat/completions', {
+      const r = await fetch(`${API_BASE_URL}/v1/chat/completions`, {
         method: 'POST',
         headers,
         body: JSON.stringify({

@@ -631,7 +631,28 @@ async def my_analytics(days: int = 7, payload: dict = Depends(require_user)):
         }
 
 
-# ─── Logs (admin only) ──────────────────────────────────────
+# ─── Logs ───────────────────────────────────────────────────
+@router.get("/logs/me")
+async def get_my_logs(limit: int = 100, offset: int = 0, payload: dict = Depends(require_user)):
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(RequestLog)
+            .where(RequestLog.user_id == payload["sub"])
+            .order_by(RequestLog.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        logs = result.scalars().all()
+        return [
+            {
+                "id": l.id, "provider": l.provider, "model": l.model,
+                "input_tokens": l.input_tokens, "output_tokens": l.output_tokens,
+                "latency_ms": l.latency_ms, "status_code": l.status_code,
+                "error": l.error, "cost_usd": l.cost_usd,
+                "created_at": l.created_at.isoformat() if l.created_at else None,
+            } for l in logs
+        ]
+
 @router.get("/logs")
 async def get_logs(limit: int = 100, offset: int = 0, _: dict = Depends(require_admin)):
     async with async_session_maker() as session:

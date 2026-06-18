@@ -48,10 +48,6 @@ export default function ModelsPage() {
     }
   }
   useEffect(() => {
-    if (user && !isAdmin) {
-      router.replace('/admin');
-      return;
-    }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, apiKey, isAdmin, user, router]);
@@ -90,9 +86,11 @@ export default function ModelsPage() {
             {models.length} models across {providers.length} providers
           </p>
         </div>
-        <Button variant="primary" onClick={() => setShowNew(true)} disabled={providers.length === 0}>
-          + Add model
-        </Button>
+        {isAdmin && (
+          <Button variant="primary" onClick={() => setShowNew(true)} disabled={providers.length === 0}>
+            + Add model
+          </Button>
+        )}
       </header>
 
       <Card>
@@ -108,7 +106,7 @@ export default function ModelsPage() {
           />
         </div>
 
-        {providers.length > 0 && (
+        {isAdmin && providers.length > 0 && (
           <div className="stack" style={{ marginBottom: '1rem' }}>
             <div className="section-eyebrow">Sync from provider</div>
             <div className="row" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>

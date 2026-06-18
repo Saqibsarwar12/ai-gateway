@@ -28,10 +28,7 @@ export default function AnalyticsPage() {
   const [days, setDays] = useState('7');
 
   useEffect(() => {
-    if (!isAdmin) {
-      router.replace('/admin');
-      return;
-    }
+    // Removed isAdmin guard
   }, [isAdmin, router]);
 
   const headers: Record<string, string> = {};
@@ -42,12 +39,14 @@ export default function AnalyticsPage() {
     setLoading(true);
     setError(null);
     try {
+      const analyticsEndpoint = isAdmin ? '/admin/analytics' : '/admin/analytics/me';
+      const logsEndpoint = isAdmin ? '/admin/logs' : '/admin/logs/me';
       const [s, l] = await Promise.all([
-        fetch(`${API_BASE_URL}/admin/analytics?days=${days}`, { headers }).then((r) => {
+        fetch(`${API_BASE_URL}${analyticsEndpoint}?days=${days}`, { headers }).then((r) => {
           if (!r.ok) throw new Error(`${r.status}`);
           return r.json();
         }),
-        fetch(`${API_BASE_URL}/admin/logs?limit=500`, { headers }).then((r) => (r.ok ? r.json() : [])),
+        fetch(`${API_BASE_URL}${logsEndpoint}?limit=500`, { headers }).then((r) => (r.ok ? r.json() : [])),
       ]);
       setStats(s);
       setLogs(l);
@@ -58,14 +57,10 @@ export default function AnalyticsPage() {
     }
   }
   useEffect(() => {
-    if (!isAdmin) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [days, token, apiKey, isAdmin]);
+  }, [days, token, apiKey]);
 
-  if (!isAdmin) {
-    return <Loader label="Redirecting..." />;
-  }
   if (loading) return <Loader label="Loading analytics" />;
   if (error) return <ErrorState error={error} onRetry={load} />;
 

@@ -126,10 +126,10 @@ export default function OverviewPage() {
         </Card>
 
         <Card title="Base URL" eyebrow="How to call the gateway">
-          <pre className="code wrap">/v1</pre>
+          <pre className="code wrap">{API_BASE_URL}/v1</pre>
           <p className="text-sm muted" style={{ marginTop: '0.5rem' }}>Use any OpenAI-compatible client:</p>
           <pre className="code wrap">
-{`curl /v1/chat/completions \\
+{`curl ${API_BASE_URL}/v1/chat/completions \\
   -H "Authorization: Bearer $AI_GATEWAY_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"model":"<model>","messages":[{"role":"user","content":"hi"}]}'`}

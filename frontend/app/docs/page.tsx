@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL || "https://ai-gateway-7dkh.onrender.com";
+  process.env.NEXT_PUBLIC_API_URL || "/api-proxy";
 
 type Param = {
   name: string;

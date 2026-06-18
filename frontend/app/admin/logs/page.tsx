@@ -25,7 +25,8 @@ export default function LogsPage() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`${API_BASE_URL}/admin/logs?limit=200`, { headers });
+      const endpoint = isAdmin ? '/admin/logs' : '/admin/logs/me';
+      const r = await fetch(`${API_BASE_URL}${endpoint}?limit=200`, { headers });
       if (!r.ok) throw new Error(`${r.status}`);
       setLogs(await r.json());
     } catch (e: any) {
@@ -35,15 +36,10 @@ export default function LogsPage() {
     }
   }
   useEffect(() => {
-    if (!isAdmin) {
-      router.replace('/admin');
-      return;
-    }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, router, token, apiKey]);
 
-  if (!isAdmin) return null;
   if (loading) return <Loader label="Loading logs" />;
   if (error) return <ErrorState error={error} onRetry={load} />;
 
