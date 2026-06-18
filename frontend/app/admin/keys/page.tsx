@@ -80,112 +80,159 @@ export default function KeysPage() {
   if (error && keys.length === 0) return <ErrorState error={error} onRetry={load} />;
 
   return (
-    <div className="stack">
-      <header className="section-head">
+    <div className="stack" style={{ maxWidth: '900px' }}>
+      <header className="section-head" style={{ marginBottom: '2rem' }}>
         <div>
-          <div className="section-eyebrow">Section 04 / API Keys</div>
-          <h1 className="section-title">My API Keys</h1>
-          <p className="section-sub mono">
-            {keys.length} / 5 keys used
+          <div className="section-eyebrow">Section 04 / Access</div>
+          <h1 className="section-title" style={{ fontSize: '2.5rem', marginTop: '0.25rem', marginBottom: '0.5rem' }}>API Keys</h1>
+          <p className="text-sm muted wrap">
+            Manage your API keys for authenticating with the gateway.
+            You can create up to 5 keys. Keep them secret.
           </p>
         </div>
-        <Button variant="primary" onClick={() => setShowNew(true)} disabled={keys.length >= 5}>
-          + Create key
-        </Button>
       </header>
 
-      <Card>
+      {/* Main Keys Display */}
+      <div className="stack" style={{ gap: '1.5rem' }}>
+        <div className="between" style={{ padding: '0 0.25rem' }}>
+          <div className="text-xs mono dim tracking-widest uppercase">Your Keys ({keys.length}/5)</div>
+          <Button variant="primary" onClick={() => setShowNew(true)} disabled={keys.length >= 5}>
+            + Create new key
+          </Button>
+        </div>
+
         {keys.length === 0 ? (
-          <div className="empty-box">No API keys yet.</div>
+          <Card>
+            <div className="empty-box">No API keys generated yet. Create one to get started.</div>
+          </Card>
         ) : (
-          <div className="table-wrap">
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Key</th>
-                  <th>Created</th>
-                  <th>Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {keys.map((k) => (
-                  <tr key={k.id}>
-                    <td>
-                      <div style={{ fontWeight: 500 }}>{k.name}</div>
-                    </td>
-                    <td>
-                      <code className="mono text-xs dim bg-[#0a0908] border border-[#2a2520] px-2 py-1 rounded-sm">
-                        {k.key_preview}
-                      </code>
-                    </td>
-                    <td className="mono text-xs dim">
-                      {(k.created_at || '').replace('T', ' ').slice(0, 16)}
-                    </td>
-                    <td>
-                      {k.is_active ? <Badge variant="ok">active</Badge> : <Badge variant="mute">disabled</Badge>}
-                    </td>
-                    <td>
-                      <div className="row" style={{ justifyContent: 'flex-end' }}>
-                        <Button variant="danger" size="sm" onClick={() => handleDelete(k.id)}>
-                          Delete
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="stack" style={{ gap: '1rem' }}>
+            {keys.map((k) => (
+              <div key={k.id} className="card" style={{ padding: '1.5rem', background: 'var(--bg-1)', border: '1px solid var(--line)' }}>
+                <div className="between" style={{ marginBottom: '1rem' }}>
+                  <div className="row" style={{ gap: '0.75rem' }}>
+                    <div style={{ fontWeight: 600, fontSize: '1.125rem' }}>{k.name}</div>
+                    {k.is_active ? <Badge variant="ok">Active</Badge> : <Badge variant="mute">Disabled</Badge>}
+                  </div>
+                  <div className="row" style={{ gap: '1rem' }}>
+                    <div className="text-xs dim mono">Created {(k.created_at || '').slice(0, 10)}</div>
+                    <button 
+                      onClick={() => handleDelete(k.id)} 
+                      className="text-xs hover-fg" 
+                      style={{ color: 'var(--err)', textTransform: 'uppercase', letterSpacing: '0.05em', cursor: 'pointer', background: 'none', border: 'none' }}>
+                      Delete
+                    </button>
+                  </div>
+                </div>
+
+                <div className="row" style={{ gap: '0.75rem', alignItems: 'stretch', flexWrap: 'wrap' }}>
+                  <div className="mono text-sm" style={{ 
+                    flex: 1, 
+                    background: 'var(--bg-0)', 
+                    border: '1px solid var(--line)', 
+                    padding: '0.875rem 1rem', 
+                    borderRadius: '6px',
+                    color: 'var(--fg-1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    letterSpacing: '0.05em'
+                  }}>
+                    {k.key_preview.replace('...', '••••••••••••••••••••••••')}
+                  </div>
+                  <button 
+                    onClick={() => copyText(k.key_preview, k.id)}
+                    className="btn btn-secondary mono text-xs uppercase"
+                    style={{ padding: '0 1.25rem', letterSpacing: '0.05em' }}
+                  >
+                    {copiedKeyId === k.id ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
-      </Card>
+      </div>
+
+      <div style={{ marginTop: '3rem' }}>
+        <div className="text-xs mono dim tracking-widest uppercase mb-4" style={{ padding: '0 0.25rem' }}>Integration Details</div>
+        <Card>
+          <div className="stack" style={{ gap: '1.5rem' }}>
+            <div>
+              <div className="text-xs mono dim uppercase tracking-wider mb-2">Base URL</div>
+              <div className="row" style={{ gap: '0.5rem', flexWrap: 'wrap' }}>
+                <code className="mono text-sm flex-1 bg-[var(--bg-0)] border border-[var(--line)] px-4 py-3 rounded-md break-all">
+                  {API_BASE_URL}/v1
+                </code>
+                <Button variant="secondary" onClick={() => copyText(`${API_BASE_URL}/v1`, 'url')}>
+                  {copiedKeyId === 'url' ? 'Copied' : 'Copy'}
+                </Button>
+              </div>
+            </div>
+            
+            <div className="divider" style={{ margin: 0 }} />
+
+            <div>
+              <div className="text-xs mono dim uppercase tracking-wider mb-2">cURL Example</div>
+              <pre className="code wrap" style={{ padding: '1.25rem', fontSize: '0.8125rem' }}>{`curl -X POST ${API_BASE_URL}/v1/chat/completions \\
+  -H "Authorization: Bearer <your-key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "hello"}]
+  }'`}</pre>
+            </div>
+          </div>
+        </Card>
+      </div>
 
       {showNew && (
-        <Modal open title="Create API Key" onClose={() => setShowNew(false)}>
+        <Modal open title="Create New API Key" onClose={() => setShowNew(false)}>
           <form onSubmit={handleCreate} className="stack">
-            <Input label="Key Name" value={newKeyName} onChange={setNewKeyName} placeholder="e.g. My App" required />
+            <p className="text-sm muted">Give your new key a descriptive name to help you track its usage.</p>
+            <Input 
+              label="Key Name" 
+              value={newKeyName} 
+              onChange={setNewKeyName} 
+              placeholder="e.g. Production App, Local Testing..." 
+              required 
+            />
             {error && <div className="error-box mono text-sm wrap">{error}</div>}
-            <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <div className="row" style={{ justifyContent: 'flex-end', marginTop: '0.5rem' }}>
               <Button variant="ghost" type="button" onClick={() => setShowNew(false)}>Cancel</Button>
-              <Button variant="primary" type="submit" disabled={creating}>{creating ? 'Creating...' : 'Create'}</Button>
+              <Button variant="primary" type="submit" disabled={creating}>{creating ? 'Generating...' : 'Generate Key'}</Button>
             </div>
           </form>
         </Modal>
       )}
 
       {createdKey && (
-        <Modal open title="API Key Created" onClose={() => setCreatedKey(null)}>
-          <div className="stack">
-            <p className="text-sm muted">
-              Please copy this key now. For your security, it will not be shown again.
-            </p>
-            <div className="row" style={{ gap: '0.5rem' }}>
-              <code className="mono text-sm flex-1 bg-[#0a0908] border border-[#2a2520] px-3 py-2 rounded-sm break-all">
+        <Modal open title="Save Your API Key" onClose={() => setCreatedKey(null)}>
+          <div className="stack" style={{ gap: '1.5rem' }}>
+            <div style={{ background: 'rgba(212, 165, 116, 0.1)', border: '1px solid rgba(212, 165, 116, 0.3)', padding: '1rem', borderRadius: '6px' }}>
+              <p className="text-sm" style={{ color: '#d4a574', margin: 0 }}>
+                <strong>Important:</strong> Please copy this key now. For your security, it will not be shown again.
+              </p>
+            </div>
+            
+            <div className="row" style={{ gap: '0.75rem', alignItems: 'stretch', flexWrap: 'wrap' }}>
+              <code className="mono text-sm flex-1 bg-[var(--bg-0)] border border-[var(--line)] px-4 py-3 rounded-md break-all" style={{ color: '#d4a574' }}>
                 {createdKey}
               </code>
-              <Button variant="secondary" onClick={() => copyText(createdKey, 'new')}>
-                {copiedKeyId === 'new' ? 'Copied!' : 'Copy'}
-              </Button>
+              <button 
+                onClick={() => copyText(createdKey, 'new')}
+                className="btn btn-primary mono text-xs uppercase"
+                style={{ padding: '0 1.25rem', letterSpacing: '0.05em', background: '#d4a574', color: '#0a0908' }}
+              >
+                {copiedKeyId === 'new' ? 'Copied!' : 'Copy Key'}
+              </button>
             </div>
-            <div className="row" style={{ justifyContent: 'flex-end', marginTop: '1rem' }}>
-              <Button variant="primary" onClick={() => setCreatedKey(null)}>Done</Button>
+            
+            <div className="row" style={{ justifyContent: 'flex-end', borderTop: '1px solid var(--line)', paddingTop: '1rem', marginTop: '0.5rem' }}>
+              <Button variant="secondary" onClick={() => setCreatedKey(null)}>I've saved it</Button>
             </div>
           </div>
         </Modal>
       )}
-
-      <Card title="Base URL" eyebrow="Integration">
-        <p className="text-sm muted" style={{ marginBottom: '0.5rem' }}>Use this base URL with any OpenAI-compatible client:</p>
-        <div className="row" style={{ gap: '0.5rem' }}>
-          <code className="mono text-sm bg-[#0a0908] border border-[#2a2520] px-3 py-2 rounded-sm flex-1 break-all">
-            {API_BASE_URL}/v1
-          </code>
-          <Button variant="secondary" size="sm" onClick={() => copyText(`${API_BASE_URL}/v1`, 'url')}>
-            {copiedKeyId === 'url' ? 'Copied' : 'Copy'}
-          </Button>
-        </div>
-      </Card>
     </div>
   );
 }
