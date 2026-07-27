@@ -70,8 +70,24 @@ export default function ProvidersPage() {
 
   async function deleteProvider(id: string) {
     if (!confirm('Delete this provider? Models routed to it will be unavailable.')) return;
-    await fetch(`${API_BASE_URL}/admin/providers/${id}`, { method: 'DELETE', headers });
-    load();
+    try {
+      const r = await fetch(`${API_BASE_URL}/admin/providers/${id}`, {
+        method: 'DELETE',
+        headers,
+      });
+      if (!r.ok) {
+        let detail = `${r.status} ${r.statusText}`;
+        try {
+          const body = await r.json();
+          detail = body.detail || body.message || JSON.stringify(body);
+        } catch {}
+        throw new Error(detail);
+      }
+      setProviders((prev) => prev.filter((p) => p.id !== id));
+      load();
+    } catch (e: any) {
+      setError(`Failed to delete provider: ${e.message}`);
+    }
   }
   async function testProvider(id: string) {
     setTestingId(id);
