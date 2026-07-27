@@ -133,6 +133,18 @@ def _compile_select(statement: Select) -> tuple:
     return sql, param_list
 
 
+def _compile_dml(statement) -> tuple:
+    """Compile a SQLAlchemy Update/Delete for D1. Uses ? placeholders."""
+    compiled = statement.compile()
+    sql = str(compiled)
+    import re
+    sql = re.sub(r':[a-zA-Z_]\w*', '?', sql)
+    params = compiled.params if hasattr(compiled, 'params') and compiled.params else {}
+    param_list = list(params.values()) if params else []
+    param_list = [p.isoformat() if isinstance(p, datetime) else p for p in param_list]
+    return sql, param_list
+
+
 def _extract_model(statement):
     """Try to extract the model class from a Select statement."""
     if hasattr(statement, "column_descriptions") and statement.column_descriptions:
@@ -246,7 +258,7 @@ class D1Session:
         return f"{obj.__tablename__}:{':'.join(parts)}"
 
     async def execute(self, statement):
-        """Execute a SQLAlchemy Select statement against D1."""
+        """Execute a SQLAlchemy Select/Update/Delete statement against D1."""
         if isinstance(statement, Select):
             model_class = _extract_model(statement)
             is_agg = _is_aggregate_query(statement)
@@ -256,6 +268,12 @@ class D1Session:
             if model_class and not is_agg:
                 result.session = self
             return result
+        # Bulk UPDATE / DELETE - compile to ?-bound SQL and run directly
+        from sqlalchemy import Update, Delete
+        if isinstance(statement, (Update, Delete)):
+            sql, params = _compile_dml(statement)
+            await execute(sql, params if params else None)
+            return D1Result([], None)
         raise ValueError(f"Unsupported statement type: {type(statement)}")
 
     def add(self, obj):
