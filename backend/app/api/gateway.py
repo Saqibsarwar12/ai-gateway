@@ -8,7 +8,7 @@ from fastapi import APIRouter, Request, HTTPException, Header
 from app.models.schemas import ChatCompletionRequest
 from app.routing.engine import RoutingEngine
 from app.db.session import async_session_maker
-from app.db.models import Provider, RoutingRule, RequestLog, User
+from app.db.models import Provider, RoutingRule, RequestLog, User, Model
 from app.core.rate_limit import rate_limiter
 from app.core.auth import decode_token
 from app.core.config import settings
@@ -160,13 +160,25 @@ def make_openai_router(version: str) -> APIRouter:
                     select(Provider).where(Provider.enabled == True)
                 )
                 providers = result2.scalars().all()
+
+                # Model table is the source of truth for model registry
+                result3 = await session.execute(
+                    select(Model).where(Model.enabled == True, Model.is_active == True)
+                )
+                model_entries = result3.scalars().all()
+                provider_model_map = {}
+                for m in model_entries:
+                    provider_model_map.setdefault(m.provider_id, []).append(
+                        m.model_id or m.id
+                    )
+
                 provider_data = [
                     {
                         "id": p.id,
                         "name": p.name,
                         "base_url": p.base_url,
                         "api_key": p.api_key,
-                        "models": p.models or [],
+                        "models": provider_model_map.get(p.id, p.models or []),
                         "requires_proxy": p.requires_proxy,
                         "proxy_url": p.proxy_url,
                     }
@@ -254,21 +266,47 @@ def make_openai_router(version: str) -> APIRouter:
         user_tier_index = _tier_index(user_tier)
 
         async with async_session_maker() as session:
+            # Source of truth: Model table (populated by admin panel)
             result = await session.execute(
+                select(Model).where(Model.enabled == True, Model.is_active == True)
+            )
+            model_entries = result.scalars().all()
+
+            # Backward compat: also read from Provider.models JSON column
+            result2 = await session.execute(
                 select(Provider).where(Provider.enabled == True)
             )
-            providers = result.scalars().all()
+            providers = result2.scalars().all()
 
         models = []
-        for p in providers:
-            for m in (p.models or []):
+        seen = set()
+
+        # Models from Model table (primary source)
+        for m in model_entries:
+            model_id = m.model_id or m.id
+            if model_id not in seen:
+                seen.add(model_id)
                 models.append({
-                    "id": f"{p.id}/{m}",
+                    "id": model_id,
                     "object": "model",
                     "created": 1700000000,
-                    "owned_by": p.id,
-                    "root": p.id,
+                    "owned_by": m.provider_id or "unknown",
+                    "root": m.provider_id or "unknown",
                 })
+
+        # Models from Provider.models JSON column (backward compat)
+        for p in providers:
+            for m in (p.models or []):
+                if m not in seen:
+                    seen.add(m)
+                    models.append({
+                        "id": m,
+                        "object": "model",
+                        "created": 1700000000,
+                        "owned_by": p.id,
+                        "root": p.id,
+                    })
+
         return {"object": "list", "data": models}
 
     @router.get("/health")
