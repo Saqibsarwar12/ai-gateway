@@ -4,7 +4,7 @@ const nextConfig = {
   reactStrictMode: true,
   images: { unoptimized: true },
   trailingSlash: true,
-  output: 'export',
+  output: process.env.NEXT_OUTPUT || 'standalone',
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || '',
   },

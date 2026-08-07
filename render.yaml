@@ -9,6 +9,8 @@ services:
     healthCheckPath: /health
     autoDeploy: true
     envVars:
+      - key: NEXT_OUTPUT
+        value: "standalone"
       - key: APP_NAME
         value: AI Gateway
       - key: DEBUG

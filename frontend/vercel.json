@@ -1,6 +1,6 @@
 {
   "framework": "nextjs",
-  "buildCommand": "npm run build",
+  "buildCommand": "NEXT_OUTPUT=export npm run build",
   "installCommand": "npm install",
   "rewrites": [
     { "source": "/api-proxy/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/:path*" },
