@@ -1,21 +1,17 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useAuth } from '@/lib/auth';
 import { Button, Input, Spinner } from '@/components/UI';
 
 export default function SignupPage() {
-  const router = useRouter();
-  const { login } = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [newApiKey, setNewApiKey] = useState<string | null>(null);
+  const [submittedEmail, setSubmittedEmail] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -39,8 +35,7 @@ export default function SignupPage() {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || 'Registration failed');
       }
-      const data = await res.json();
-      setNewApiKey(data.api_key);
+      setSubmittedEmail(email);
     } catch (err: any) {
       setError(err.message || 'Registration failed');
     } finally {
@@ -48,39 +43,14 @@ export default function SignupPage() {
     }
   }
 
-  if (newApiKey) {
+  if (submittedEmail) {
     return (
       <div className="min-h-screen bg-[#0a0908] text-[#f5f1e8] flex items-center justify-center p-6">
-        <div className="w-full max-w-md">
-          <div className="border border-[#1c1c1a] bg-[#13110f] p-8 rounded-sm">
-            <div className="font-mono text-[10px] text-[#d4a574] tracking-[0.4em] uppercase">Account created</div>
-            <h1 className="mt-3 font-serif text-3xl italic">Save your API key.</h1>
-            <p className="mt-3 text-sm text-[#8a8275] leading-relaxed">
-              This is the only time we will show this key. Copy it now and store it somewhere safe —
-              you can generate new keys any time from your dashboard.
-            </p>
-            <div className="mt-6 p-4 bg-[#0a0908] border border-[#2a2820] rounded-sm">
-              <div className="font-mono text-[10px] text-[#6b6358] tracking-[0.2em] uppercase mb-2">Your API key</div>
-              <div className="font-mono text-sm break-all text-[#d4a574] select-all">{newApiKey}</div>
-            </div>
-            <div className="mt-3 flex gap-2">
-              <button
-                onClick={() => navigator.clipboard.writeText(newApiKey)}
-                className="font-mono text-xs px-3 py-2 bg-[#1c1c1a] border border-[#2a2820] rounded-sm uppercase tracking-wider hover:bg-[#26241f]"
-              >
-                Copy
-              </button>
-              <button
-                onClick={async () => {
-                  await login(email, password);
-                  router.push('/admin');
-                }}
-                className="font-mono text-xs px-3 py-2 bg-[#d4a574] text-[#0a0908] rounded-sm uppercase tracking-wider hover:bg-[#c89960] flex-1"
-              >
-                Continue to dashboard →
-              </button>
-            </div>
-          </div>
+        <div className="w-full max-w-md border border-[#1c1c1a] bg-[#13110f] p-8 rounded-sm">
+          <div className="font-mono text-[10px] text-[#d4a574] tracking-[0.4em] uppercase">Check your inbox</div>
+          <h1 className="mt-3 font-serif text-3xl italic">Verify your email.</h1>
+          <p className="mt-3 text-sm text-[#8a8275] leading-relaxed">We sent a verification link to {submittedEmail}. Your account stays inactive until you open it.</p>
+          <Link href="/login" className="mt-6 inline-block font-mono text-xs text-[#d4a574] uppercase tracking-wider">Return to sign in →</Link>
         </div>
       </div>
     );

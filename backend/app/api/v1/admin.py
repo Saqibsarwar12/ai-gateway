@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from sqlalchemy import select, func
 from app.db.session import async_session_maker
-from app.db.models import Provider, RoutingRule, User, Model, RequestLog, UsageStats, APIKey
+from app.db.models import Provider, RoutingRule, User, Model, RequestLog, UsageStats, APIKey, VerificationToken
 from app.models.schemas import (
     ProviderCreate, ProviderUpdate, ProviderResponse,
     RoutingRuleCreate, RoutingRuleUpdate, RoutingRuleResponse,
@@ -37,9 +37,11 @@ from app.core.auth import (
 from app.core.config import settings
 import shortuuid
 import secrets
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, List
 from pydantic import BaseModel, EmailStr, Field
+from app.services.email import EmailDeliveryError, send_verification_email
 
 router = APIRouter()
 
@@ -66,7 +68,17 @@ async def _decode_bearer(authorization: Optional[str] = Header(None)) -> dict:
 
 async def require_user(authorization: Optional[str] = Header(None)) -> dict:
     """Any logged-in user."""
-    return await _decode_bearer(authorization)
+    payload = await _decode_bearer(authorization)
+    user_id = payload.get("sub")
+    async with async_session_maker() as session:
+        result = await session.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=401, detail="User no longer exists")
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail="Account is disabled")
+        await _require_verified_user(user)
+    return payload
 
 async def require_admin(authorization: Optional[str] = Header(None)) -> dict:
     """Admin role required."""
@@ -74,6 +86,10 @@ async def require_admin(authorization: Optional[str] = Header(None)) -> dict:
     if payload.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin role required")
     return payload
+
+async def _require_verified_user(user: User) -> None:
+    if user.role != "admin" and not user.email_verified_at:
+        raise HTTPException(status_code=403, detail="Email verification required")
 
 # ─── Rate limit on login (in-memory, per-IP) ───────────────────
 _login_attempts: dict = {}  # ip -> [timestamps]
@@ -91,6 +107,17 @@ def _check_login_rate_limit(ip: str) -> None:
     _login_attempts[ip] = attempts
 
 import time
+
+async def _delete_created_registration(session, user_id: str, verification_id: str) -> None:
+    verification_result = await session.execute(select(VerificationToken).where(VerificationToken.id == verification_id))
+    verification_row = verification_result.scalar_one_or_none()
+    if verification_row:
+        await session.delete(verification_row)
+    user_result = await session.execute(select(User).where(User.id == user_id))
+    user_row = user_result.scalar_one_or_none()
+    if user_row:
+        await session.delete(user_row)
+    await session.commit()
 
 # ─── Auth (PUBLIC — no token required) ────────────────────────
 class LoginBody(BaseModel):
@@ -122,6 +149,7 @@ async def login(body: LoginBody, request: Request):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         if not user.is_active:
             raise HTTPException(status_code=403, detail="Account is disabled")
+        await _require_verified_user(user)
 
         token = create_access_token(
             {"sub": user.id, "email": user.email, "role": user.role},
@@ -150,12 +178,9 @@ class RegisterBody(BaseModel):
     password: str = Field(min_length=6, max_length=128)
 
 @router.post("/auth/register")
-async def register(body: RegisterBody):
-    """Public sign-up. Returns the new user's API key ONCE.
-
-    The caller should save the api_key immediately — it's only shown on
-    creation, never again via the regular /auth/me endpoint.
-    """
+async def register(body: RegisterBody, request: Request):
+    """Create an inactive account and send a one-time verification link."""
+    _check_login_rate_limit(_client_ip(request))
     name = body.name.strip()
     email = body.email.strip().lower()
     if "@" not in email or "." not in email:
@@ -171,36 +196,55 @@ async def register(body: RegisterBody):
         if name_exists.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Username already taken")
 
-        api_key = create_api_key()
-        u = User(
-            id=shortuuid.uuid(),
+        user_id = shortuuid.uuid()
+        user = User(
+            id=user_id,
             name=name,
             email=email,
             hashed_password=hash_password(body.password),
             role="user",
             tier="v1",
-            api_key=api_key,
+            api_key=create_api_key(),
             credits=100,
-            is_active=True,
+            is_active=False,
         )
-        session.add(u)
+        raw_token = secrets.token_urlsafe(48)
+        verification = VerificationToken(
+            id=shortuuid.uuid(),
+            user_id=user_id,
+            token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
+            expires_at=datetime.utcnow() + timedelta(hours=settings.VERIFICATION_TOKEN_HOURS),
+        )
+        session.add(user)
+        session.add(verification)
         await session.commit()
+        try:
+            await send_verification_email(email, f"{settings.APP_BASE_URL}/admin/auth/verify-email?token={raw_token}")
+        except EmailDeliveryError as exc:
+            await _delete_created_registration(session, user_id, verification.id)
+            raise HTTPException(status_code=503, detail="Verification email service is unavailable") from exc
+        return {"status": "verification_required", "email": email, "message": "Check your email to activate your account."}
 
-        token = create_access_token({"sub": u.id, "email": u.email, "role": u.role})
-        return {
-            "access_token": token,
-            "token_type": "bearer",
-            "expires_in_hours": ACCESS_TOKEN_EXPIRE_HOURS,
-            "user": {
-                "id": u.id,
-                "email": u.email,
-                "name": u.name,
-                "role": u.role,
-                "tier": u.tier,
-                "credits": u.credits,
-            },
-            "api_key": api_key,  # Shown ONCE on registration
-        }
+@router.get("/auth/verify-email")
+async def verify_email(token: str):
+    if not token or len(token) > 256:
+        raise HTTPException(status_code=400, detail="Invalid verification link")
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    now = datetime.utcnow()
+    async with async_session_maker() as session:
+        result = await session.execute(select(VerificationToken).where(VerificationToken.token_hash == token_hash))
+        verification = result.scalar_one_or_none()
+        if not verification or verification.used_at or verification.expires_at < now:
+            raise HTTPException(status_code=400, detail="Invalid or expired verification link")
+        user_result = await session.execute(select(User).where(User.id == verification.user_id))
+        user = user_result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=400, detail="Invalid verification link")
+        user.email_verified_at = now
+        user.is_active = True
+        verification.used_at = now
+        await session.commit()
+    return {"verified": True, "message": "Email verified. You can now sign in."}
 
 @router.get("/auth/me")
 async def me(payload: dict = Depends(require_user)):

@@ -8,6 +8,7 @@ import os
 import sys
 from pathlib import Path
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.core.config import settings
 from app.api.v1 import admin
 from app.api.gateway import make_openai_router
+from app.db.migrations import migrate_auth_schema, cleanup_legacy_users
 
 NEXT_PORT = int(os.getenv("NEXT_PORT", "3001"))
 NEXT_BASE = f"http://localhost:{NEXT_PORT}"
@@ -29,6 +31,7 @@ async def lifespan(app: FastAPI):
     # Startup: create / migrate tables
     from app.db.session import init_db, async_session_maker, USE_D1
     await init_db()
+    await migrate_auth_schema()
 
     # Test D1 connectivity
     try:
@@ -58,18 +61,19 @@ async def lifespan(app: FastAPI):
                     api_key=api_key,
                     credits=999999999,
                     is_active=True,
+                    email_verified_at=datetime.utcnow(),
                 )
                 session.add(admin_user)
                 await session.commit()
                 print(f"Admin created: {settings.ADMIN_EMAIL} / API Key: {api_key}")
             else:
-                admin_user.hashed_password = hash_password(settings.ADMIN_PASSWORD)
-                admin_user.tier = "v3"
-                admin_user.is_active = True
+                admin_user.email_verified_at = admin_user.email_verified_at or datetime.utcnow()
                 await session.commit()
-                print(f"Admin password refreshed: {settings.ADMIN_EMAIL}")
+                print(f"Admin preserved: {settings.ADMIN_EMAIL}")
     except Exception as e:
         print(f"WARNING: Admin seed skipped — {e}")
+
+    await cleanup_legacy_users()
 
     yield
 

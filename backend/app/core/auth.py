@@ -117,6 +117,8 @@ async def get_current_user_full(authorization: str = Header(None)) -> dict:
             raise HTTPException(status_code=401, detail="User no longer exists")
         if not user.is_active:
             raise HTTPException(status_code=403, detail="Account is disabled")
+        if user.role != "admin" and not user.email_verified_at:
+            raise HTTPException(status_code=403, detail="Email verification required")
         return {
             "id": user.id,
             "email": user.email,

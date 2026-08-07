@@ -57,7 +57,7 @@ async def _resolve_actor(
         async with async_session_maker() as session:
             result = await session.execute(select(User).where(User.id == payload["sub"]))
             user = result.scalar_one_or_none()
-            if user and user.is_active:
+            if user and user.is_active and (user.role == "admin" or user.email_verified_at):
                 return {
                     "id": user.id,
                     "role": user.role,
@@ -71,7 +71,7 @@ async def _resolve_actor(
             select(User).where(User.api_key == token, User.is_active == True)
         )
         user = result.scalar_one_or_none()
-        if user:
+        if user and (user.role == "admin" or user.email_verified_at):
             return {
                 "id": user.id,
                 "role": user.role,
