@@ -114,6 +114,17 @@ def _check_login_rate_limit(ip: str) -> None:
 
 import time
 
+
+def _check_registration_rate_limit(ip: str) -> None:
+    now = time.time()
+    window = settings.AUTH_RATE_LIMIT_WINDOW_SECONDS
+    attempts = [t for t in _login_attempts.get(f"register:{ip}", []) if now - t < window]
+    if len(attempts) >= settings.AUTH_RATE_LIMIT_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="Too many registration attempts. Try again later.")
+    attempts.append(now)
+    _login_attempts[f"register:{ip}"] = attempts
+
+
 async def _delete_created_registration(session, user_id: str, verification_id: str) -> None:
     verification_result = await session.execute(select(VerificationToken).where(VerificationToken.id == verification_id))
     verification_row = verification_result.scalar_one_or_none()
@@ -186,7 +197,7 @@ class RegisterBody(BaseModel):
 @router.post("/auth/register")
 async def register(body: RegisterBody, request: Request):
     """Create an inactive account and send a one-time verification link."""
-    _check_login_rate_limit(_client_ip(request))
+    _check_registration_rate_limit(_client_ip(request))
     name = body.name.strip()
     email = body.email.strip().lower()
     if len(name) < 2:
