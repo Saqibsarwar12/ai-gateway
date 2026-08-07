@@ -83,8 +83,20 @@ class User(Base):
     tier = Column(String, default="v1")
     credits = Column(Integer, default=100)
     is_active = Column(Boolean, default=True)
+    email_verified_at = Column(DateTime)
     api_key = Column(String, unique=True)
     extra_metadata = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class VerificationToken(Base):
+    __tablename__ = "verification_tokens"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False)
+    token_hash = Column(String, unique=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

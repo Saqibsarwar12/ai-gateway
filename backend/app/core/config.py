@@ -14,6 +14,18 @@ class Settings:
     ALGORITHM = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30 days
 
+    APP_BASE_URL = os.getenv("APP_BASE_URL", "https://saki-gateway.indevs.in").rstrip("/")
+    RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+    EMAIL_FROM = os.getenv("EMAIL_FROM", "")
+    SMTP_HOST = os.getenv("SMTP_HOST", "")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+    SMTP_TLS = os.getenv("SMTP_TLS", "true").lower() == "true"
+    VERIFICATION_TOKEN_HOURS = int(os.getenv("VERIFICATION_TOKEN_HOURS", "24"))
+    AUTH_RATE_LIMIT_WINDOW_SECONDS = 300
+    AUTH_RATE_LIMIT_MAX_ATTEMPTS = 5
+
     # Tier rate limits (requests per minute)
     TIER_RATE_LIMITS = {
         "v1": 60,
