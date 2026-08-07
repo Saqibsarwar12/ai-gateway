@@ -2,7 +2,6 @@
 import asyncio
 import smtplib
 from email.message import EmailMessage
-from typing import Optional
 
 import httpx
 

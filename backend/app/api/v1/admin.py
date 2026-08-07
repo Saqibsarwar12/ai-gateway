@@ -83,8 +83,14 @@ async def require_user(authorization: Optional[str] = Header(None)) -> dict:
 async def require_admin(authorization: Optional[str] = Header(None)) -> dict:
     """Admin role required."""
     payload = await _decode_bearer(authorization)
-    if payload.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin role required")
+    user_id = payload.get("sub")
+    async with async_session_maker() as session:
+        result = await session.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if not user or not user.is_active:
+            raise HTTPException(status_code=401, detail="User no longer exists or is disabled")
+        if user.role != "admin":
+            raise HTTPException(status_code=403, detail="Admin role required")
     return payload
 
 async def _require_verified_user(user: User) -> None:
@@ -174,8 +180,8 @@ async def login(body: LoginBody, request: Request):
 
 class RegisterBody(BaseModel):
     name: str = Field(min_length=2, max_length=64)
-    email: str = Field(min_length=3, max_length=255)
-    password: str = Field(min_length=6, max_length=128)
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
 
 @router.post("/auth/register")
 async def register(body: RegisterBody, request: Request):
@@ -183,10 +189,10 @@ async def register(body: RegisterBody, request: Request):
     _check_login_rate_limit(_client_ip(request))
     name = body.name.strip()
     email = body.email.strip().lower()
-    if "@" not in email or "." not in email:
-        raise HTTPException(status_code=400, detail="Invalid email format")
-    if len(body.password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if len(name) < 2:
+        raise HTTPException(status_code=400, detail="Username must be at least 2 characters")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
     async with async_session_maker() as session:
         existing = await session.execute(select(User).where(User.email == email))
@@ -540,20 +546,22 @@ async def list_users(_: dict = Depends(require_admin)):
 @router.post("/users", response_model=UserResponse)
 async def create_user(data: UserCreate, _: dict = Depends(require_admin)):
     async with async_session_maker() as session:
-        existing = await session.execute(select(User).where(User.email == data.email))
+        normalized_email = data.email.strip().lower()
+        existing = await session.execute(select(User).where(User.email == normalized_email))
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Email already registered")
         api_key = create_api_key()
         u = User(
             id=shortuuid.uuid(),
             name=data.name,
-            email=data.email,
+            email=normalized_email,
             hashed_password=hash_password(data.password),
             role=data.role,
             tier=data.tier or "v1",
             api_key=api_key,
             credits=data.credits,
             is_active=True,
+            email_verified_at=datetime.utcnow(),
         )
         session.add(u)
         await session.commit()

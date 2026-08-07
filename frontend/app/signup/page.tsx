@@ -20,8 +20,8 @@ export default function SignupPage() {
       setError('Passwords do not match');
       return;
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
       return;
     }
     setLoading(true);
@@ -65,7 +65,7 @@ export default function SignupPage() {
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <Input label="Username" type="text" value={name} onChange={setName} required placeholder="johndoe" />
             <Input label="Email" type="email" value={email} onChange={setEmail} required placeholder="you@company.com" />
-            <Input label="Password" type="password" value={password} onChange={setPassword} required placeholder="Min 6 characters" />
+            <Input label="Password" type="password" value={password} onChange={setPassword} required placeholder="Min 8 characters" />
             <Input label="Confirm password" type="password" value={confirm} onChange={setConfirm} required />
             {error && (
               <div className="text-sm text-red-400 bg-red-400/10 border border-red-400/20 rounded px-3 py-2">{error}</div>

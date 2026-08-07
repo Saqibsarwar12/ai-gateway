@@ -31,6 +31,7 @@ async def migrate_auth_schema() -> None:
         )
         await d1_execute("CREATE INDEX IF NOT EXISTS idx_verification_tokens_hash ON verification_tokens(token_hash)")
         await d1_execute("CREATE INDEX IF NOT EXISTS idx_verification_tokens_user ON verification_tokens(user_id)")
+        await d1_execute("CREATE TABLE IF NOT EXISTS auth_migrations (migration_key TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
         return
 
     async with engine.begin() as connection:
@@ -50,11 +51,15 @@ async def migrate_auth_schema() -> None:
         )
         await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_verification_tokens_hash ON verification_tokens(token_hash)"))
         await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_verification_tokens_user ON verification_tokens(user_id)"))
+        await connection.execute(text("CREATE TABLE IF NOT EXISTS auth_migrations (migration_key VARCHAR(255) PRIMARY KEY, applied_at DATETIME NOT NULL)"))
 
 
 async def cleanup_legacy_users() -> dict:
-    """Preserve only the configured admin row and remove all old users."""
+    """Preserve only the configured admin row and remove all old users once."""
+    migration_key = "preserve-admin-remove-legacy-users-v1"
     if USE_D1:
+        if await d1_fetchall("SELECT migration_key FROM auth_migrations WHERE migration_key = ?", [migration_key]):
+            return {"skipped": True}
         admin_rows = await d1_fetchall("SELECT id FROM users WHERE lower(email) = lower(?) AND role = 'admin'", [settings.ADMIN_EMAIL])
         if len(admin_rows) != 1:
             raise RuntimeError("Expected exactly one configured admin row before cleanup")
@@ -63,9 +68,13 @@ async def cleanup_legacy_users() -> dict:
         await d1_execute("DELETE FROM api_keys WHERE user_id != ?", [admin_id])
         await d1_execute("DELETE FROM users WHERE id != ?", [admin_id])
         await d1_execute("UPDATE users SET email_verified_at = COALESCE(email_verified_at, CURRENT_TIMESTAMP), is_active = 1 WHERE id = ?", [admin_id])
+        await d1_execute("INSERT INTO auth_migrations (migration_key, applied_at) VALUES (?, CURRENT_TIMESTAMP)", [migration_key])
         return {"admin_id": admin_id, "deleted_non_admins": True}
 
     async with engine.begin() as connection:
+        marker = await connection.execute(text("SELECT migration_key FROM auth_migrations WHERE migration_key = :key"), {"key": migration_key})
+        if marker.first():
+            return {"skipped": True}
         result = await connection.execute(text("SELECT id FROM users WHERE lower(email) = lower(:email) AND role = 'admin'"), {"email": settings.ADMIN_EMAIL})
         rows = result.fetchall()
         if len(rows) != 1:
@@ -75,4 +84,5 @@ async def cleanup_legacy_users() -> dict:
         await connection.execute(text("DELETE FROM api_keys WHERE user_id != :id"), {"id": admin_id})
         await connection.execute(text("DELETE FROM users WHERE id != :id"), {"id": admin_id})
         await connection.execute(text("UPDATE users SET email_verified_at = COALESCE(email_verified_at, CURRENT_TIMESTAMP), is_active = 1 WHERE id = :id"), {"id": admin_id})
+        await connection.execute(text("INSERT INTO auth_migrations (migration_key, applied_at) VALUES (:key, CURRENT_TIMESTAMP)"), {"key": migration_key})
         return {"admin_id": admin_id, "deleted_non_admins": True}
