@@ -24,7 +24,7 @@ interface AuthState {
 interface AuthContextValue extends AuthState {
   setAuth: (auth: Partial<AuthState>) => void;
   login: (identifier: string, password: string) => Promise<void>;
-  register: (data: { name: string; email: string; password: string }) => Promise<{ api_key: string }>;
+  register: (data: { name: string; email: string; password: string }) => Promise<{ status: string; email: string }>;
   logout: () => void;
   refresh: () => Promise<void>;
   apiKey: string | null;
@@ -84,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuth({ token: data.access_token, user });
   };
 
-  const register = async (data: { name: string; email: string; password: string }): Promise<{ api_key: string }> => {
+  const register = async (data: { name: string; email: string; password: string }): Promise<{ status: string; email: string }> => {
     const res = await fetch(`${API_BASE}/admin/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -99,8 +99,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error(detail);
     }
     const json = await res.json();
-    setAuth({ token: json.access_token, user: json.user });
-    return { api_key: json.api_key };
+    // Registration now requires email verification before login
+    return { status: json.status, email: json.email };
   };
 
   const logout = () => {

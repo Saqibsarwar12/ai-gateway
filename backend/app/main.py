@@ -73,6 +73,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"WARNING: Admin seed skipped — {e}")
 
+    # Require EMAIL_FROM in production
+    if not settings.EMAIL_FROM:
+        raise RuntimeError("EMAIL_FROM is not configured. Set it in Render environment variables.")
     await cleanup_legacy_users()
 
     yield

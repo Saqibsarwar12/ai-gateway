@@ -16,7 +16,7 @@ class Settings:
 
     APP_BASE_URL = os.getenv("APP_BASE_URL", "https://saki-gateway.indevs.in").rstrip("/")
     BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
-    EMAIL_FROM = os.getenv("EMAIL_FROM", ADMIN_EMAIL)
+    EMAIL_FROM = os.getenv("EMAIL_FROM", "")
     EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "Saki Gateway")
     EMAIL_API_TIMEOUT_SECONDS = float(os.getenv("EMAIL_API_TIMEOUT_SECONDS", "10"))
     VERIFICATION_TOKEN_HOURS = int(os.getenv("VERIFICATION_TOKEN_HOURS", "24"))

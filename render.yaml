@@ -1,37 +1,43 @@
 services:
-  - type: web
-    name: ai-gateway
-    runtime: docker
-    plan: starter
-    region: oregon
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    healthCheckPath: /health
-    autoDeploy: true
-    envVars:
-      - key: NEXT_OUTPUT
-        value: "standalone"
-      - key: APP_NAME
-        value: AI Gateway
-      - key: DEBUG
-        value: "false"
-      - key: USE_SQLITE
-        value: "false"
-      - key: USE_D1
-        value: "true"
-      - key: CF_API_TOKEN
-        sync: false
-      - key: CF_ACCOUNT_ID
-        value: "7be17faee5f8104b96b7887ab587398f"
-      - key: CF_D1_ID
-        value: "e14f279e-fb81-4190-8820-4305bea8e140"
-      - key: ADMIN_EMAIL
-        value: saqibsarwar003@gmail.com
-      - key: ADMIN_PASSWORD
-        value: "Biscoe@@3"
-      - key: SECRET_KEY
-        generateValue: true
-      - key: PORT
-        value: "8000"
-      - key: DATABASE_URL
-        value: "sqlite+aiosqlite:////tmp/ai_gateway.db"
+- type: web
+  name: ai-gateway
+  runtime: docker
+  plan: starter
+  region: oregon
+  dockerfilePath: ./Dockerfile
+  dockerContext: .
+  healthCheckPath: /health
+  autoDeploy: true
+  envVars:
+  - key: NEXT_OUTPUT
+    value: standalone
+  - key: APP_NAME
+    value: AI Gateway
+  - key: DEBUG
+    value: 'false'
+  - key: USE_SQLITE
+    value: 'false'
+  - key: USE_D1
+    value: 'true'
+  - key: CF_API_TOKEN
+    sync: false
+  - key: CF_ACCOUNT_ID
+    value: 7be17faee5f8104b96b7887ab587398f
+  - key: CF_D1_ID
+    value: e14f279e-fb81-4190-8820-4305bea8e140
+  - key: ADMIN_EMAIL
+    value: saqibsarwar003@gmail.com
+  - key: ADMIN_PASSWORD
+    value: Biscoe@@3
+  - key: SECRET_KEY
+    generateValue: true
+  - key: PORT
+    value: '8000'
+  - key: DATABASE_URL
+    value: sqlite+aiosqlite:////tmp/ai_gateway.db
+  - key: EMAIL_FROM
+    value: no-reply@saki-verifier.ryzedns.org
+  - key: EMAIL_FROM_NAME
+    value: Saki Gateway
+  - key: BREVO_API_KEY
+    sync: false
