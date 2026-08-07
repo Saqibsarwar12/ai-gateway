@@ -24,6 +24,24 @@ async def send_verification_email(recipient: str, verification_url: str) -> None
         f'<p><a href="{verification_url}">Verify email address</a></p>'
         f"<p>This link expires in {settings.VERIFICATION_TOKEN_HOURS} hours.</p>"
     )
+    if settings.CF_EMAIL_API_TOKEN:
+        if not settings.EMAIL_FROM:
+            raise EmailDeliveryError("EMAIL_FROM must be configured with Cloudflare Email Service")
+        if not settings.CF_ACCOUNT_ID:
+            raise EmailDeliveryError("CF_ACCOUNT_ID must be configured with Cloudflare Email Service")
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await client.post(
+                    f"https://api.cloudflare.com/client/v4/accounts/{settings.CF_ACCOUNT_ID}/email/sending/send",
+                    headers={"Authorization": f"Bearer {settings.CF_EMAIL_API_TOKEN}", "Content-Type": "application/json"},
+                    json={"from": settings.EMAIL_FROM, "to": recipient, "subject": subject, "text": text, "html": html},
+                )
+            payload = response.json()
+            if response.status_code >= 400 or not payload.get("success"):
+                raise EmailDeliveryError(f"Cloudflare Email Service rejected message: {response.status_code}")
+            return
+        except (httpx.HTTPError, EmailDeliveryError) as exc:
+            raise EmailDeliveryError(str(exc)) from exc
     if settings.RESEND_API_KEY:
         if not settings.EMAIL_FROM:
             raise EmailDeliveryError("EMAIL_FROM must be configured with RESEND_API_KEY")

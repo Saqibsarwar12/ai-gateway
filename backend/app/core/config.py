@@ -15,6 +15,7 @@ class Settings:
     ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30 days
 
     APP_BASE_URL = os.getenv("APP_BASE_URL", "https://saki-gateway.indevs.in").rstrip("/")
+    CF_EMAIL_API_TOKEN = os.getenv("CF_EMAIL_API_TOKEN", os.getenv("CLOUDFLARE_EMAIL_API_TOKEN", ""))
     RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
     EMAIL_FROM = os.getenv("EMAIL_FROM", "")
     SMTP_HOST = os.getenv("SMTP_HOST", "")
