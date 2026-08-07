@@ -80,7 +80,7 @@ async def migrate_auth_schema() -> None:
 
 async def cleanup_legacy_users() -> dict:
     """Preserve only the configured admin row and remove all old users once."""
-    migration_key = "preserve-admin-remove-legacy-users-v1"
+    migration_key = "preserve-admin-remove-legacy-users-v2"
     if USE_D1:
         if await d1_fetchall("SELECT migration_key FROM auth_migrations WHERE migration_key = ?", [migration_key]):
             return {"skipped": True}
@@ -90,6 +90,7 @@ async def cleanup_legacy_users() -> dict:
         admin_id = admin_rows[0]["id"]
         await d1_execute("DELETE FROM verification_tokens WHERE user_id != ?", [admin_id])
         await d1_execute("DELETE FROM api_keys WHERE user_id != ?", [admin_id])
+        await d1_execute("DELETE FROM pending_registrations")
         await d1_execute("DELETE FROM users WHERE id != ?", [admin_id])
         await d1_execute("UPDATE users SET email_verified_at = COALESCE(email_verified_at, CURRENT_TIMESTAMP), is_active = 1 WHERE id = ?", [admin_id])
         await d1_execute("INSERT INTO auth_migrations (migration_key, applied_at) VALUES (?, CURRENT_TIMESTAMP)", [migration_key])
@@ -106,6 +107,7 @@ async def cleanup_legacy_users() -> dict:
         admin_id = rows[0][0]
         await connection.execute(text("DELETE FROM verification_tokens WHERE user_id != :id"), {"id": admin_id})
         await connection.execute(text("DELETE FROM api_keys WHERE user_id != :id"), {"id": admin_id})
+        await connection.execute(text("DELETE FROM pending_registrations"))
         await connection.execute(text("DELETE FROM users WHERE id != :id"), {"id": admin_id})
         await connection.execute(text("UPDATE users SET email_verified_at = COALESCE(email_verified_at, CURRENT_TIMESTAMP), is_active = 1 WHERE id = :id"), {"id": admin_id})
         await connection.execute(text("INSERT INTO auth_migrations (migration_key, applied_at) VALUES (:key, CURRENT_TIMESTAMP)"), {"key": migration_key})

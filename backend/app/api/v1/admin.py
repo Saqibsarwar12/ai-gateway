@@ -209,9 +209,19 @@ async def register(body: RegisterBody, request: Request):
         existing = await session.execute(select(User).where(User.email == email))
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Email already registered")
+        pending_existing = await session.execute(select(PendingRegistration).where(PendingRegistration.email == email))
+        pending_row = pending_existing.scalar_one_or_none()
+        if pending_row:
+            await session.delete(pending_row)
+            await session.commit()
         name_exists = await session.execute(select(User).where(User.name == name))
         if name_exists.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Username already taken")
+        pending_name = await session.execute(select(PendingRegistration).where(PendingRegistration.name == name))
+        pending_name_row = pending_name.scalar_one_or_none()
+        if pending_name_row:
+            await session.delete(pending_name_row)
+            await session.commit()
 
         now = datetime.utcnow()
         raw_token = secrets.token_urlsafe(48)
