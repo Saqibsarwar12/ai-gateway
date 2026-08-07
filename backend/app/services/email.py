@@ -1,18 +1,32 @@
-"""Email delivery for account verification."""
-import asyncio
-import smtplib
-from email.message import EmailMessage
+"""Brevo REST API delivery for account verification."""
+import logging
 
 import httpx
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class EmailDeliveryError(RuntimeError):
     pass
 
 
+def _response_detail(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+        detail = payload.get("message") or payload.get("code") or payload
+    except ValueError:
+        detail = response.text
+    return str(detail)[:500]
+
+
 async def send_verification_email(recipient: str, verification_url: str) -> None:
+    if not settings.BREVO_API_KEY:
+        raise EmailDeliveryError("BREVO_API_KEY is not configured")
+    if not settings.EMAIL_FROM:
+        raise EmailDeliveryError("EMAIL_FROM is not configured")
+
     subject = "Verify your Saki Gateway account"
     text = (
         "Verify your Saki Gateway account by opening this link:\n\n"
@@ -24,63 +38,35 @@ async def send_verification_email(recipient: str, verification_url: str) -> None
         f'<p><a href="{verification_url}">Verify email address</a></p>'
         f"<p>This link expires in {settings.VERIFICATION_TOKEN_HOURS} hours.</p>"
     )
-    if settings.CF_EMAIL_API_TOKEN:
-        if not settings.EMAIL_FROM:
-            raise EmailDeliveryError("EMAIL_FROM must be configured with Cloudflare Email Service")
-        if not settings.CF_ACCOUNT_ID:
-            raise EmailDeliveryError("CF_ACCOUNT_ID must be configured with Cloudflare Email Service")
-        try:
-            async with httpx.AsyncClient(timeout=20) as client:
-                response = await client.post(
-                    f"https://api.cloudflare.com/client/v4/accounts/{settings.CF_ACCOUNT_ID}/email/sending/send",
-                    headers={"Authorization": f"Bearer {settings.CF_EMAIL_API_TOKEN}", "Content-Type": "application/json"},
-                    json={"from": settings.EMAIL_FROM, "to": recipient, "subject": subject, "text": text, "html": html},
-                )
-            payload = response.json()
-            if response.status_code >= 400 or not payload.get("success"):
-                raise EmailDeliveryError(f"Cloudflare Email Service rejected message: {response.status_code}")
-            return
-        except (httpx.HTTPError, EmailDeliveryError) as exc:
-            raise EmailDeliveryError(str(exc)) from exc
-    if settings.RESEND_API_KEY:
-        if not settings.EMAIL_FROM:
-            raise EmailDeliveryError("EMAIL_FROM must be configured with RESEND_API_KEY")
-        try:
-            async with httpx.AsyncClient(timeout=20) as client:
-                response = await client.post(
-                    "https://api.resend.com/emails",
-                    headers={
-                        "Authorization": f"Bearer {settings.RESEND_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json={"from": settings.EMAIL_FROM, "to": [recipient], "subject": subject, "text": text, "html": html},
-                )
-            if response.status_code >= 400:
-                raise EmailDeliveryError(f"Email provider rejected message: {response.status_code}")
-            return
-        except (httpx.HTTPError, EmailDeliveryError) as exc:
-            raise EmailDeliveryError(str(exc)) from exc
-    if settings.SMTP_HOST:
-        if not settings.EMAIL_FROM:
-            raise EmailDeliveryError("EMAIL_FROM must be configured with SMTP")
-        try:
-            await asyncio.wait_for(asyncio.to_thread(_send_smtp, recipient, subject, text, html), timeout=settings.SMTP_TIMEOUT_SECONDS + 2)
-        except (TimeoutError, OSError, smtplib.SMTPException) as exc:
-            raise EmailDeliveryError("SMTP delivery failed or timed out") from exc
-        return
-    raise EmailDeliveryError("No email provider configured")
+    payload = {
+        "sender": {"email": settings.EMAIL_FROM, "name": settings.EMAIL_FROM_NAME},
+        "to": [{"email": recipient}],
+        "subject": subject,
+        "textContent": text,
+        "htmlContent": html,
+    }
 
+    try:
+        async with httpx.AsyncClient(timeout=settings.EMAIL_API_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={"api-key": settings.BREVO_API_KEY, "accept": "application/json"},
+                json=payload,
+            )
+    except httpx.HTTPError as exc:
+        logger.exception("Brevo REST request failed: %s", exc)
+        raise EmailDeliveryError("Brevo email service is unreachable") from exc
 
-def _send_smtp(recipient: str, subject: str, text: str, html: str) -> None:
-    message = EmailMessage()
-    message["From"] = settings.EMAIL_FROM
-    message["To"] = recipient
-    message["Subject"] = subject
-    message.set_content(text)
-    message.add_alternative(html, subtype="html")
-    with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=settings.SMTP_TIMEOUT_SECONDS) as server:
-        if settings.SMTP_TLS:
-            server.starttls()
-        if settings.SMTP_USERNAME:
-            server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
-        server.send_message(message)
+    if response.status_code < 200 or response.status_code >= 300:
+        detail = _response_detail(response)
+        logger.error("Brevo REST rejected verification email: status=%s body=%s", response.status_code, detail)
+        raise EmailDeliveryError(f"Brevo rejected the verification email ({response.status_code}): {detail}")
+
+    try:
+        result = response.json()
+    except ValueError as exc:
+        logger.error("Brevo REST returned non-JSON success response: status=%s body=%s", response.status_code, response.text[:500])
+        raise EmailDeliveryError("Brevo returned an invalid success response") from exc
+    if not result.get("messageId"):
+        logger.error("Brevo REST success response did not contain messageId: %s", str(result)[:500])
+        raise EmailDeliveryError("Brevo did not confirm the verification email")

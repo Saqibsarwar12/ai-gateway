@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Request, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from sqlalchemy import select, func
 from app.db.session import async_session_maker
 from app.db.models import Provider, RoutingRule, User, Model, RequestLog, UsageStats, APIKey, VerificationToken, PendingRegistration
@@ -195,7 +195,7 @@ class RegisterBody(BaseModel):
     password: str = Field(min_length=8, max_length=128)
 
 @router.post("/auth/register")
-async def register(body: RegisterBody, request: Request, background_tasks: BackgroundTasks = None):
+async def register(body: RegisterBody, request: Request):
     """Send verification first; create the real user only after confirmation."""
     _check_registration_rate_limit(_client_ip(request))
     name = body.name.strip()
@@ -238,10 +238,7 @@ async def register(body: RegisterBody, request: Request, background_tasks: Backg
         await session.commit()
         verification_url = f"{settings.APP_BASE_URL}/admin/auth/verify-email?token={raw_token}"
         try:
-            if background_tasks is not None:
-                background_tasks.add_task(send_verification_email, email, verification_url)
-            else:
-                await send_verification_email(email, verification_url)
+            await send_verification_email(email, verification_url)
         except EmailDeliveryError as exc:
             await session.delete(pending)
             await session.commit()
