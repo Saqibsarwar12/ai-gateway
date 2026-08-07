@@ -59,14 +59,27 @@ async def send_verification_email(recipient: str, verification_url: str) -> None
 
     if response.status_code < 200 or response.status_code >= 300:
         detail = _response_detail(response)
-        logger.error("Brevo REST rejected verification email: status=%s body=%s", response.status_code, detail)
-        raise EmailDeliveryError(f"Brevo rejected the verification email ({response.status_code}): {detail}")
+        logger.error(
+            "Brevo REST rejected verification email: status=%s body=%s payload=%s",
+            response.status_code,
+            detail,
+            payload,
+        )
+        raise EmailDeliveryError(
+            f"Brevo rejected the verification email ({response.status_code}): {detail}"
+        ) from None
 
     try:
         result = response.json()
     except ValueError as exc:
-        logger.error("Brevo REST returned non-JSON success response: status=%s body=%s", response.status_code, response.text[:500])
+        logger.error(
+            "Brevo REST returned non-JSON success response: status=%s body=%s",
+            response.status_code,
+            response.text[:500],
+        )
         raise EmailDeliveryError("Brevo returned an invalid success response") from exc
+
+    logger.info("Brevo REST verification email response: %s", result)
     if not result.get("messageId"):
         logger.error("Brevo REST success response did not contain messageId: %s", str(result)[:500])
         raise EmailDeliveryError("Brevo did not confirm the verification email")

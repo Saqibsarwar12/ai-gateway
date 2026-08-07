@@ -51,6 +51,8 @@ async def migrate_auth_schema() -> None:
         names = {row[1] for row in columns.fetchall()}
         if "email_verified_at" not in names:
             await connection.execute(text("ALTER TABLE users ADD COLUMN email_verified_at DATETIME"))
+        if "is_active" not in names:
+            await connection.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1"))
         await connection.execute(text(
             """CREATE TABLE IF NOT EXISTS verification_tokens (
                 id VARCHAR(255) PRIMARY KEY,
