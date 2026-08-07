@@ -242,7 +242,7 @@ async def register(body: RegisterBody, request: Request):
         except EmailDeliveryError as exc:
             await session.delete(pending)
             await session.commit()
-            raise HTTPException(status_code=503, detail="Verification email service is unavailable") from exc
+            raise HTTPException(status_code=503, detail=f"Verification email could not be sent: {exc}") from exc
         return {"status": "verification_required", "email": email, "message": "Check your email to activate your account."}
 
 @router.get("/auth/verify-email")
