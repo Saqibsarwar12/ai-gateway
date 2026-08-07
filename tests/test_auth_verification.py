@@ -14,6 +14,7 @@ os.environ.update({
     'ADMIN_PASSWORD': 'AdminPass!123',
     'SECRET_KEY': 'test-secret',
     'RESEND_API_KEY': '',
+    'BREVO_SMTP': '',
     'SMTP_HOST': '',
 })
 

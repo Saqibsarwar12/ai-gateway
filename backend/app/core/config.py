@@ -17,11 +17,12 @@ class Settings:
     APP_BASE_URL = os.getenv("APP_BASE_URL", "https://saki-gateway.indevs.in").rstrip("/")
     CF_EMAIL_API_TOKEN = os.getenv("CF_EMAIL_API_TOKEN", os.getenv("CLOUDFLARE_EMAIL_API_TOKEN", ""))
     RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-    EMAIL_FROM = os.getenv("EMAIL_FROM", "")
-    SMTP_HOST = os.getenv("SMTP_HOST", "")
+    BREVO_SMTP = os.getenv("BREVO_SMTP", "")
+    EMAIL_FROM = os.getenv("EMAIL_FROM", ADMIN_EMAIL)
+    SMTP_HOST = os.getenv("SMTP_HOST", "smtp-relay.brevo.com" if BREVO_SMTP else "")
     SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-    SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
-    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+    SMTP_USERNAME = os.getenv("SMTP_USERNAME", "b4bca8001@smtp-brevo.com" if BREVO_SMTP else "")
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", BREVO_SMTP)
     SMTP_TLS = os.getenv("SMTP_TLS", "true").lower() == "true"
     VERIFICATION_TOKEN_HOURS = int(os.getenv("VERIFICATION_TOKEN_HOURS", "24"))
     AUTH_RATE_LIMIT_WINDOW_SECONDS = 300
