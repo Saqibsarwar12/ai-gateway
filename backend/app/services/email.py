@@ -63,7 +63,10 @@ async def send_verification_email(recipient: str, verification_url: str) -> None
     if settings.SMTP_HOST:
         if not settings.EMAIL_FROM:
             raise EmailDeliveryError("EMAIL_FROM must be configured with SMTP")
-        await asyncio.to_thread(_send_smtp, recipient, subject, text, html)
+        try:
+            await asyncio.wait_for(asyncio.to_thread(_send_smtp, recipient, subject, text, html), timeout=settings.SMTP_TIMEOUT_SECONDS + 2)
+        except (TimeoutError, OSError, smtplib.SMTPException) as exc:
+            raise EmailDeliveryError("SMTP delivery failed or timed out") from exc
         return
     raise EmailDeliveryError("No email provider configured")
 
