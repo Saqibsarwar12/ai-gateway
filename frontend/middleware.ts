@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-const API = "https://ai-gateway-7dkh.onrender.com";
+const API = process.env.API_PROXY_TARGET || "https://ai-gateway-7dkh.onrender.com";
 
 export function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
