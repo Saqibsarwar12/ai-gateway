@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from sqlalchemy import select, func
 from app.db.session import async_session_maker
-from app.db.models import Provider, RoutingRule, User, Model, RequestLog, UsageStats, APIKey, VerificationToken
+from app.db.models import Provider, RoutingRule, User, Model, RequestLog, UsageStats, APIKey, VerificationToken, PendingRegistration
 from app.models.schemas import (
     ProviderCreate, ProviderUpdate, ProviderResponse,
     RoutingRuleCreate, RoutingRuleUpdate, RoutingRuleResponse,
@@ -196,7 +196,7 @@ class RegisterBody(BaseModel):
 
 @router.post("/auth/register")
 async def register(body: RegisterBody, request: Request):
-    """Create an inactive account and send a one-time verification link."""
+    """Send verification first; create the real user only after confirmation."""
     _check_registration_rate_limit(_client_ip(request))
     name = body.name.strip()
     email = body.email.strip().lower()
@@ -213,35 +213,24 @@ async def register(body: RegisterBody, request: Request):
         if name_exists.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Username already taken")
 
-        user_id = shortuuid.uuid()
         now = datetime.utcnow()
-        user = User(
-            id=user_id,
+        raw_token = secrets.token_urlsafe(48)
+        pending = PendingRegistration(
+            id=shortuuid.uuid(),
             name=name,
             email=email,
             hashed_password=hash_password(body.password),
-            role="user",
-            tier="v1",
-            api_key=create_api_key(),
-            credits=100,
-            is_active=False,
-            created_at=now,
-        )
-        raw_token = secrets.token_urlsafe(48)
-        verification = VerificationToken(
-            id=shortuuid.uuid(),
-            user_id=user_id,
             token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
             expires_at=now + timedelta(hours=settings.VERIFICATION_TOKEN_HOURS),
             created_at=now,
         )
-        session.add(user)
-        session.add(verification)
+        session.add(pending)
         await session.commit()
         try:
             await send_verification_email(email, f"{settings.APP_BASE_URL}/admin/auth/verify-email?token={raw_token}")
         except EmailDeliveryError as exc:
-            await _delete_created_registration(session, user_id, verification.id)
+            await session.delete(pending)
+            await session.commit()
             raise HTTPException(status_code=503, detail="Verification email service is unavailable") from exc
         return {"status": "verification_required", "email": email, "message": "Check your email to activate your account."}
 
@@ -252,6 +241,41 @@ async def verify_email(token: str):
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     now = datetime.utcnow()
     async with async_session_maker() as session:
+        pending_result = await session.execute(select(PendingRegistration).where(PendingRegistration.token_hash == token_hash))
+        pending = pending_result.scalar_one_or_none()
+        if pending:
+            if pending.expires_at < now:
+                await session.delete(pending)
+                await session.commit()
+                raise HTTPException(status_code=400, detail="Invalid or expired verification link")
+            existing_email = await session.execute(select(User).where(User.email == pending.email))
+            if existing_email.scalar_one_or_none():
+                await session.delete(pending)
+                await session.commit()
+                raise HTTPException(status_code=409, detail="Email already registered")
+            existing_name = await session.execute(select(User).where(User.name == pending.name))
+            if existing_name.scalar_one_or_none():
+                await session.delete(pending)
+                await session.commit()
+                raise HTTPException(status_code=409, detail="Username already taken")
+            user = User(
+                id=shortuuid.uuid(),
+                name=pending.name,
+                email=pending.email,
+                hashed_password=pending.hashed_password,
+                role="user",
+                tier="v1",
+                api_key=create_api_key(),
+                credits=100,
+                is_active=True,
+                email_verified_at=now,
+                created_at=now,
+            )
+            session.add(user)
+            await session.delete(pending)
+            await session.commit()
+            return {"verified": True, "message": "Email verified. Your account is now active. You can sign in."}
+
         result = await session.execute(select(VerificationToken).where(VerificationToken.token_hash == token_hash))
         verification = result.scalar_one_or_none()
         if not verification or verification.used_at or verification.expires_at < now:

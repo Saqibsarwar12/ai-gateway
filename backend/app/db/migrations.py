@@ -31,6 +31,18 @@ async def migrate_auth_schema() -> None:
         )
         await d1_execute("CREATE INDEX IF NOT EXISTS idx_verification_tokens_hash ON verification_tokens(token_hash)")
         await d1_execute("CREATE INDEX IF NOT EXISTS idx_verification_tokens_user ON verification_tokens(user_id)")
+        await d1_execute(
+            """CREATE TABLE IF NOT EXISTS pending_registrations (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                hashed_password TEXT NOT NULL,
+                token_hash TEXT UNIQUE NOT NULL,
+                expires_at TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )"""
+        )
+        await d1_execute("CREATE INDEX IF NOT EXISTS idx_pending_registrations_token ON pending_registrations(token_hash)")
         await d1_execute("CREATE TABLE IF NOT EXISTS auth_migrations (migration_key TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
         return
 
@@ -51,6 +63,18 @@ async def migrate_auth_schema() -> None:
         )
         await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_verification_tokens_hash ON verification_tokens(token_hash)"))
         await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_verification_tokens_user ON verification_tokens(user_id)"))
+        await connection.execute(text(
+            """CREATE TABLE IF NOT EXISTS pending_registrations (
+                id VARCHAR(255) PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                email VARCHAR(255) UNIQUE NOT NULL,
+                hashed_password VARCHAR(255) NOT NULL,
+                token_hash VARCHAR(255) UNIQUE NOT NULL,
+                expires_at DATETIME NOT NULL,
+                created_at DATETIME NOT NULL
+            )"""
+        ))
+        await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_pending_registrations_token ON pending_registrations(token_hash)"))
         await connection.execute(text("CREATE TABLE IF NOT EXISTS auth_migrations (migration_key VARCHAR(255) PRIMARY KEY, applied_at DATETIME NOT NULL)"))
 
 

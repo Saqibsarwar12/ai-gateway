@@ -100,6 +100,18 @@ class VerificationToken(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class PendingRegistration(Base):
+    __tablename__ = "pending_registrations"
+
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    email = Column(String, unique=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    token_hash = Column(String, unique=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, nullable=False)
+
+
 class APIKey(Base):
     __tablename__ = "api_keys"
 
