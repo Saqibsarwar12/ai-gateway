@@ -214,6 +214,7 @@ async def register(body: RegisterBody, request: Request):
             raise HTTPException(status_code=409, detail="Username already taken")
 
         user_id = shortuuid.uuid()
+        now = datetime.utcnow()
         user = User(
             id=user_id,
             name=name,
@@ -224,13 +225,15 @@ async def register(body: RegisterBody, request: Request):
             api_key=create_api_key(),
             credits=100,
             is_active=False,
+            created_at=now,
         )
         raw_token = secrets.token_urlsafe(48)
         verification = VerificationToken(
             id=shortuuid.uuid(),
             user_id=user_id,
             token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
-            expires_at=datetime.utcnow() + timedelta(hours=settings.VERIFICATION_TOKEN_HOURS),
+            expires_at=now + timedelta(hours=settings.VERIFICATION_TOKEN_HOURS),
+            created_at=now,
         )
         session.add(user)
         session.add(verification)
@@ -573,6 +576,7 @@ async def create_user(data: UserCreate, _: dict = Depends(require_admin)):
             credits=data.credits,
             is_active=True,
             email_verified_at=datetime.utcnow(),
+            created_at=datetime.utcnow(),
         )
         session.add(u)
         await session.commit()
