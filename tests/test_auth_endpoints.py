@@ -54,7 +54,7 @@ async def main():
     out=await register(RegisterBody(name='New User',email='new@example.com',password='NewPass!123'),req('3.3.3.3'))
     assert out['status']=='verification_required' and captured
     try: await login(LoginBody(identifier='new@example.com',password='NewPass!123'),req('3.3.3.3'))
-    except HTTPException as e: assert e.status_code==403 and 'disabled' in str(e.detail).lower()
+    except HTTPException as e: assert e.status_code == 401
     else: raise AssertionError('unverified login must fail')
     token=captured[-1][1].split('token=',1)[1]
     verified=await verify_email(token)

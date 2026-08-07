@@ -23,7 +23,7 @@ async def main():
  req=Request({'type':'http','method':'POST','path':'/','headers':[(b'x-forwarded-for',b'8.8.8.8')]})
  await admin.register(RegisterBody(name='Expired',email='expired@example.com',password='Password!123'),req)
  async with async_session_maker() as s:
-  row=(await s.execute(select(VerificationToken))).scalar_one()
+  row=(await s.execute(select(__import__('app.db.models', fromlist=['PendingRegistration']).PendingRegistration))).scalar_one()
   row.expires_at=datetime.utcnow()-timedelta(minutes=1)
   await s.commit()
   token_hash=row.token_hash

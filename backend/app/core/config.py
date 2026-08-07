@@ -24,6 +24,7 @@ class Settings:
     SMTP_USERNAME = os.getenv("SMTP_USERNAME", "b4bca8001@smtp-brevo.com" if BREVO_SMTP else "")
     SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", BREVO_SMTP)
     SMTP_TLS = os.getenv("SMTP_TLS", "true").lower() == "true"
+    SMTP_TIMEOUT_SECONDS = float(os.getenv("SMTP_TIMEOUT_SECONDS", "8"))
     VERIFICATION_TOKEN_HOURS = int(os.getenv("VERIFICATION_TOKEN_HOURS", "24"))
     AUTH_RATE_LIMIT_WINDOW_SECONDS = 300
     AUTH_RATE_LIMIT_MAX_ATTEMPTS = 5

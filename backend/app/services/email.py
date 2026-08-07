@@ -75,7 +75,7 @@ def _send_smtp(recipient: str, subject: str, text: str, html: str) -> None:
     message["Subject"] = subject
     message.set_content(text)
     message.add_alternative(html, subtype="html")
-    with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=20) as server:
+    with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=settings.SMTP_TIMEOUT_SECONDS) as server:
         if settings.SMTP_TLS:
             server.starttls()
         if settings.SMTP_USERNAME:
