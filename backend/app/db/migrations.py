@@ -17,8 +17,16 @@ async def migrate_auth_schema() -> None:
             return
         columns = await d1_fetchall("PRAGMA table_info(users)")
         names = {row.get("name") for row in columns}
-        if "email_verified_at" not in names:
-            await d1_execute("ALTER TABLE users ADD COLUMN email_verified_at TEXT")
+        additions = {
+            "tier": "TEXT DEFAULT 'v1'",
+            "credits": "INTEGER DEFAULT 100",
+            "is_active": "INTEGER DEFAULT 1",
+            "email_verified_at": "TEXT",
+            "extra_metadata": "TEXT",
+        }
+        for column, definition in additions.items():
+            if column not in names:
+                await d1_execute(f'ALTER TABLE users ADD COLUMN "{column}" {definition}')
         await d1_execute(
             """CREATE TABLE IF NOT EXISTS verification_tokens (
                 id TEXT PRIMARY KEY,

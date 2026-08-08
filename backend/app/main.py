@@ -28,17 +28,21 @@ NEXT_BASE = f"http://localhost:{NEXT_PORT}"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create / migrate tables
+    # Startup: validate required production configuration before touching data.
     from app.db.session import init_db, async_session_maker, USE_D1
+    if not settings.EMAIL_FROM:
+        raise RuntimeError("EMAIL_FROM is not configured. Set it in Render environment variables.")
     await init_db()
     await migrate_auth_schema()
 
-    # Test D1 connectivity
-    try:
+    # Test the actual configured database path with a backend-compatible query.
+    if USE_D1:
+        from app.db.cloudflare import fetchone
+        await fetchone("SELECT 1 AS ok")
+    else:
+        from sqlalchemy import text
         async with async_session_maker() as session:
-            await session.execute("SELECT 1")
-    except Exception as e:
-        print(f"WARNING: D1 connectivity test failed — {e}")
+            await session.execute(text("SELECT 1"))
 
     # Seed default admin
     from app.db.models import User
@@ -73,9 +77,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"WARNING: Admin seed skipped — {e}")
 
-    # Require EMAIL_FROM in production
-    if not settings.EMAIL_FROM:
-        raise RuntimeError("EMAIL_FROM is not configured. Set it in Render environment variables.")
     await cleanup_legacy_users()
 
     yield
@@ -111,6 +112,13 @@ app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": settings.VERSION}
+
+
+@app.get("/health/d1")
+async def health_d1():
+    from app.db.cloudflare import fetchone
+    row = await fetchone("SELECT 1 AS ok")
+    return {"status": "ok", "database": "d1", "result": row}
 
 
 # ─── Proxy all other requests to Next.js ───────────────────────────────

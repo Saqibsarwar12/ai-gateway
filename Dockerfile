@@ -38,7 +38,6 @@ RUN chmod +x /app/start.sh
 
 WORKDIR /app
 
-ENV USE_SQLITE=true
 ENV PORT=8000
 ENV NEXT_PORT=3001
 
