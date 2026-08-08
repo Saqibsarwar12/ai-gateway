@@ -8,6 +8,7 @@
     { "source": "/v2/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/v2/:path*" },
     { "source": "/v3/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/v3/:path*" },
     { "source": "/health", "destination": "https://ai-gateway-7dkh.onrender.com/health" },
+    { "source": "/health/d1", "destination": "https://ai-gateway-7dkh.onrender.com/health/d1" },
     { "source": "/openapi.json", "destination": "https://ai-gateway-7dkh.onrender.com/openapi.json" }
   ]
 }
