@@ -236,7 +236,7 @@ async def register(body: RegisterBody, request: Request):
         )
         session.add(pending)
         await session.commit()
-        verification_url = f"{settings.APP_BASE_URL}/admin/auth/verify-email?token={raw_token}"
+        verification_url = f"{settings.APP_BASE_URL}/verify-email?token={raw_token}"
         try:
             await send_verification_email(email, verification_url)
         except EmailDeliveryError as exc:
