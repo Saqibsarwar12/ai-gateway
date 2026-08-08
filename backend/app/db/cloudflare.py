@@ -14,14 +14,14 @@ D1_URL = f"{ENDPOINT}/accounts/{CF_ACCOUNT_ID}/d1/database/{CF_D1_ID}"
 
 def _auth_headers() -> dict:
     """Return auth headers for Cloudflare API."""
-    if CF_API_TOKEN and CF_API_TOKEN.startswith("cfk_"):
-        return {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
     if CLOUDFLARE_GLOBAL_KEY and CF_EMAIL:
         return {
             "X-Auth-Email": CF_EMAIL,
             "X-Auth-Key": CLOUDFLARE_GLOBAL_KEY,
             "Content-Type": "application/json",
         }
+    if CF_API_TOKEN:
+        return {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
     raise RuntimeError(
         "Cloudflare auth not configured. Set CF_API_TOKEN or both CF_EMAIL and Cloudflare_Global_API_Key."
     )
