@@ -14,7 +14,7 @@ D1_URL = f"{ENDPOINT}/accounts/{CF_ACCOUNT_ID}/d1/database/{CF_D1_ID}"
 
 def _auth_headers() -> dict:
     """Return auth headers for Cloudflare API."""
-    if CF_API_TOKEN:
+    if CF_API_TOKEN and CF_API_TOKEN.startswith("cfk_"):
         return {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
     if CLOUDFLARE_GLOBAL_KEY and CF_EMAIL:
         return {
