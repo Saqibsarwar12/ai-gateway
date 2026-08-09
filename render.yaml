@@ -30,7 +30,7 @@ services:
   - key: CF_D1_ID
     value: e14f279e-fb81-4190-8820-4305bea8e140
   - key: ADMIN_EMAIL
-    value: saqib.sarwar003@gmail.com
+    value: saqibsarwar003@gmail.com
   - key: SECRET_KEY
     generateValue: true
   - key: PORT
