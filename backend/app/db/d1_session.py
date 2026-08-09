@@ -198,6 +198,17 @@ class D1Result:
     def scalars(self):
         return self
 
+    def first(self):
+        if not self._rows:
+            return None
+        row = self._rows[0]
+        if self._model_class:
+            obj = _row_to_model(row, self._model_class)
+            if self.session:
+                self.session._track(obj)
+            return obj
+        return row
+
     def all(self):
         if self._model_class:
             objs = [_row_to_model(row, self._model_class) for row in self._rows]
