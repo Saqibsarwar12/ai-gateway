@@ -1163,6 +1163,40 @@ async def upsert_my_gateway(body: GatewayConfigBody, payload: dict = Depends(req
         return {"saved": True, "username": user.username, "base_url": f"{settings.PUBLIC_GATEWAY_BASE_URL.rstrip('/')}/{user.username}/v1", "config": {"id": config.id, "provider": config.provider, "provider_type": config.provider_type, "default_model": config.default_model, "base_url": config.base_url, "enabled": config.enabled}}
 
 
+@router.post("/personal-gateway/{config_id}/test")
+async def test_my_gateway(config_id: str, payload: dict = Depends(require_user)):
+    started = time.perf_counter()
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(UserGatewayConfig).where(
+                UserGatewayConfig.id == config_id,
+                UserGatewayConfig.user_id == payload["sub"],
+            )
+        )
+        config = result.scalar_one_or_none()
+    if not config:
+        raise HTTPException(status_code=404, detail="Gateway configuration not found")
+    if not config.enabled:
+        raise HTTPException(status_code=409, detail="Personal gateway is disabled")
+    try:
+        from app.providers.adapters import make_adapter
+        adapter = make_adapter({
+            "id": config.provider,
+            "provider_type": config.provider_type,
+            "base_url": config.base_url,
+            "api_key": __import__("app.core.auth", fromlist=["decrypt_gateway_secret"]).decrypt_gateway_secret(config.encrypted_api_key),
+        })
+        result = await adapter.health_check()
+        result["latency_ms"] = round((time.perf_counter() - started) * 1000, 2)
+        return result
+    except Exception:
+        return {
+            "ok": False,
+            "latency_ms": round((time.perf_counter() - started) * 1000, 2),
+            "error": "Provider connection failed",
+        }
+
+
 @router.delete("/gateway/me/{config_id}")
 async def delete_my_gateway(config_id: str, payload: dict = Depends(require_user)):
     async with async_session_maker() as session:
