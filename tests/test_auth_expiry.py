@@ -35,4 +35,6 @@ async def main():
   await verify_email('expired-token')
  except HTTPException as e: assert e.status_code==400
  print('expiry/invalid token checks: PASS')
-asyncio.run(main())
+
+if __name__ == '__main__':
+    asyncio.run(main())

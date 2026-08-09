@@ -16,4 +16,6 @@ async def main():
   health=await client.get('/health'); assert health.status_code==200 and health.json()['status']=='ok'
   openapi=await client.get('/openapi.json'); assert openapi.status_code==200
  print('endpoint contract checks: PASS')
-asyncio.run(main())
+
+if __name__ == '__main__':
+    asyncio.run(main())

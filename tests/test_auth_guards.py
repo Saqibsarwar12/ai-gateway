@@ -29,4 +29,6 @@ async def main():
  except HTTPException as e: assert e.status_code==401
  else: raise AssertionError('inactive/unverified api key must fail')
  print('protected access guard checks: PASS')
-asyncio.run(main())
+
+if __name__ == '__main__':
+    asyncio.run(main())

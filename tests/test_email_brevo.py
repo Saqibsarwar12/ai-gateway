@@ -48,4 +48,5 @@ async def main():
     email.httpx.AsyncClient = old
     print("Brevo REST email checks: PASS")
 
-asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())

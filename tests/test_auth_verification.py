@@ -71,4 +71,5 @@ async def main():
     assert create_access_token({'sub': 'new-user', 'role': 'user'})
     print('auth verification unit checks: PASS')
 
-asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())

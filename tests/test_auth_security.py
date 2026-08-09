@@ -30,4 +30,6 @@ async def main():
  except HTTPException as e: assert e.status_code==401
  else: raise AssertionError('expired token must fail')
  print('auth security checks: PASS')
-asyncio.run(main())
+
+if __name__ == '__main__':
+    asyncio.run(main())

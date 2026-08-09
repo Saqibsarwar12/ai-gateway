@@ -80,4 +80,6 @@ async def main():
     async with async_session_maker() as session:
         assert (await session.execute(select(User).where(User.email=='fail@example.com'))).scalar_one_or_none() is None
     print('auth endpoint checks: PASS')
-asyncio.run(main())
+
+if __name__ == '__main__':
+    asyncio.run(main())
