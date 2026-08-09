@@ -7,7 +7,7 @@ class Settings:
     APP_NAME = "AI Gateway"
     DEBUG = os.getenv("DEBUG", "false").lower() == "true"
     ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@example.com")
-    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "changeme")
+    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./ai_gateway.db")
     USE_SQLITE = os.getenv("USE_SQLITE", "false").lower() == "true"
