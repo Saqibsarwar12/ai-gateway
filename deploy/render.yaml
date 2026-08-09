@@ -19,8 +19,6 @@ api:
       generateValue: true
     - key: ADMIN_EMAIL
       value: admin@example.com
-    - key: ADMIN_PASSWORD
-      generateValue: true
     - key: DATABASE_URL
       value: sqlite+aiosqlite:///./ai_gateway.db
     - key: USE_SQLITE
