@@ -1150,8 +1150,11 @@ class GatewayConfigBody(BaseModel):
 async def upsert_my_gateway(body: GatewayConfigBody, payload: dict = Depends(require_user)):
     if body.provider_type not in {"openai", "anthropic"}:
         raise HTTPException(status_code=400, detail="Unsupported provider type")
-    if not body.base_url.lower().startswith(("https://", "http://")):
-        raise HTTPException(status_code=400, detail="Base URL must be HTTP or HTTPS")
+    if not body.base_url.lower().startswith("https://"):
+        raise HTTPException(status_code=400, detail="Base URL must use HTTPS")
+    parsed_base_url = __import__("urllib.parse", fromlist=["urlparse"]).urlparse(body.base_url)
+    if parsed_base_url.username or parsed_base_url.password or not parsed_base_url.netloc:
+        raise HTTPException(status_code=400, detail="Base URL is invalid")
     async with async_session_maker() as session:
         user_result = await session.execute(select(User).where(User.id == payload["sub"]))
         user = user_result.scalar_one_or_none()

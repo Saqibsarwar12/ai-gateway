@@ -73,9 +73,11 @@ async def _resolve_owned_config(username: str, request: Request) -> tuple[dict, 
 def _adapter(config: UserGatewayConfig):
     try:
         parsed = urlparse(config.base_url)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
             raise ValueError("invalid provider base URL")
         api_key = decrypt_gateway_secret(config.encrypted_api_key)
+        if not api_key:
+            raise ValueError("missing provider credential")
     except Exception as exc:
         raise HTTPException(status_code=409, detail="Personal provider configuration is invalid") from exc
     return make_adapter({
