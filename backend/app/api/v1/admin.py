@@ -205,6 +205,7 @@ class RegisterBody(BaseModel):
 @router.post("/auth/register")
 async def register(body: RegisterBody, request: Request):
     """Send verification first; create the real user only after confirmation."""
+    started = time.perf_counter()
     _check_registration_rate_limit(_client_ip(request))
     name = body.name.strip()
     email = body.email.strip().lower()
@@ -216,44 +217,47 @@ async def register(body: RegisterBody, request: Request):
     if len(body.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
+    lookup_started = time.perf_counter()
     async with async_session_maker() as session:
-        existing = await session.execute(select(User).where(User.email == email))
+        existing = await session.execute(select(User).where((User.email == email) | (User.name == name) | (User.username == name)).limit(1))
         if existing.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="Email already registered")
-        pending_existing = await session.execute(select(PendingRegistration).where(PendingRegistration.email == email))
+            raise HTTPException(status_code=409, detail="Email or username already registered")
+        pending_existing = await session.execute(select(PendingRegistration).where((PendingRegistration.email == email) | (PendingRegistration.name == name)).limit(1))
         pending_row = pending_existing.scalar_one_or_none()
-        if pending_row:
-            await session.delete(pending_row)
-            await session.commit()
-        name_exists = await session.execute(select(User).where(User.name == name))
-        if name_exists.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="Username already taken")
-        pending_name = await session.execute(select(PendingRegistration).where(PendingRegistration.name == name))
-        pending_name_row = pending_name.scalar_one_or_none()
-        if pending_name_row:
-            await session.delete(pending_name_row)
-            await session.commit()
+        lookup_ms = round((time.perf_counter() - lookup_started) * 1000, 2)
 
+        hash_started = time.perf_counter()
+        hashed_password = hash_password(body.password)
+        hash_ms = round((time.perf_counter() - hash_started) * 1000, 2)
         now = datetime.utcnow()
         raw_token = secrets.token_urlsafe(48)
         pending = PendingRegistration(
             id=shortuuid.uuid(),
             name=name,
             email=email,
-            hashed_password=hash_password(body.password),
+            hashed_password=hashed_password,
             token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
             expires_at=now + timedelta(hours=settings.VERIFICATION_TOKEN_HOURS),
             created_at=now,
         )
+        if pending_row:
+            await session.delete(pending_row)
         session.add(pending)
+        db_started = time.perf_counter()
         await session.commit()
+        db_write_ms = round((time.perf_counter() - db_started) * 1000, 2)
         verification_url = f"{settings.APP_BASE_URL}/verify-email?token={raw_token}"
+        email_started = time.perf_counter()
         try:
             await send_verification_email(email, verification_url)
         except EmailDeliveryError as exc:
             await session.delete(pending)
             await session.commit()
+            print(f"auth.register timing lookup_ms={lookup_ms} hash_ms={hash_ms} db_write_ms={db_write_ms} email_ms={round((time.perf_counter() - email_started) * 1000, 2)} total_ms={round((time.perf_counter() - started) * 1000, 2)} result=email_failure")
             raise HTTPException(status_code=503, detail=f"Verification email could not be sent: {exc}") from exc
+        email_ms = round((time.perf_counter() - email_started) * 1000, 2)
+        total_ms = round((time.perf_counter() - started) * 1000, 2)
+        print(f"auth.register timing lookup_ms={lookup_ms} hash_ms={hash_ms} db_write_ms={db_write_ms} email_ms={email_ms} total_ms={total_ms} result=success")
         return {"status": "verification_required", "email": email, "message": "Check your email to activate your account."}
 
 @router.get("/auth/verify-email")
