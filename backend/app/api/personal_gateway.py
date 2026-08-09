@@ -1,4 +1,5 @@
 import re
+from urllib.parse import urlparse
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -70,11 +71,18 @@ async def _resolve_owned_config(username: str, request: Request) -> tuple[dict, 
 
 
 def _adapter(config: UserGatewayConfig):
+    try:
+        parsed = urlparse(config.base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("invalid provider base URL")
+        api_key = decrypt_gateway_secret(config.encrypted_api_key)
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail="Personal provider configuration is invalid") from exc
     return make_adapter({
         "id": config.provider,
         "provider_type": config.provider_type,
         "base_url": config.base_url,
-        "api_key": decrypt_gateway_secret(config.encrypted_api_key),
+        "api_key": api_key,
     })
 
 
