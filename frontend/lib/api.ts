@@ -80,6 +80,12 @@ export const apiListMyKeys = () => get<any[]>("/admin/api-keys");
 export const apiCreateMyKey = (data: { name: string; rate_limit_rpm?: number }) => post<any>("/admin/api-keys", data);
 export const apiDeleteMyKey = (id: string) => del("/admin/api-keys/" + id);
 
+// ─── Personal gateway ────────────────────────────────────────────────────
+export const apiGetGateway = () => get<any>('/admin/gateway/me');
+export const apiSaveGateway = (data: any) => put<any>('/admin/gateway/me', data);
+export const apiTestGateway = (id: string) => post<any>(`/admin/personal-gateway/${id}/test`);
+export const apiDeleteGateway = (id: string) => del(`/admin/gateway/me/${id}`);
+
 // ─── Users ───────────────────────────────────────────────────────────────
 export const apiListUsers = () => get<User[]>('/admin/users');
 export const apiCreateUser = (data: any) => post<User>('/admin/users', data);

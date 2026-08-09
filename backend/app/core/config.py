@@ -22,6 +22,9 @@ class Settings:
     VERIFICATION_TOKEN_HOURS = int(os.getenv("VERIFICATION_TOKEN_HOURS", "24"))
     AUTH_RATE_LIMIT_WINDOW_SECONDS = 300
     AUTH_RATE_LIMIT_MAX_ATTEMPTS = 5
+    PERSONAL_GATEWAY_MAX_CONFIGS = int(os.getenv("PERSONAL_GATEWAY_MAX_CONFIGS", "5"))
+    PERSONAL_GATEWAY_ENCRYPTION_KEY = os.getenv("PERSONAL_GATEWAY_ENCRYPTION_KEY", "")
+    PUBLIC_GATEWAY_BASE_URL = os.getenv("PUBLIC_GATEWAY_BASE_URL", "https://saki-gateway.indevs.in")
 
     # Tier rate limits (requests per minute)
     TIER_RATE_LIMITS = {

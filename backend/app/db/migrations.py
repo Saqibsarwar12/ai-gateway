@@ -1,4 +1,4 @@
-"""Idempotent authentication migrations for SQLite and Cloudflare D1."""
+"""Idempotent authentication and personal gateway migrations."""
 from sqlalchemy import text
 
 from app.core.config import settings
@@ -23,34 +23,27 @@ async def migrate_auth_schema() -> None:
             "is_active": "INTEGER DEFAULT 1",
             "email_verified_at": "TEXT",
             "extra_metadata": "TEXT",
+            "username": "TEXT",
         }
         for column, definition in additions.items():
             if column not in names:
                 await d1_execute(f'ALTER TABLE users ADD COLUMN "{column}" {definition}')
-        await d1_execute(
-            """CREATE TABLE IF NOT EXISTS verification_tokens (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                token_hash TEXT UNIQUE NOT NULL,
-                expires_at TEXT NOT NULL,
-                used_at TEXT,
-                created_at TEXT NOT NULL
-            )"""
-        )
-        await d1_execute("CREATE INDEX IF NOT EXISTS idx_verification_tokens_hash ON verification_tokens(token_hash)")
-        await d1_execute("CREATE INDEX IF NOT EXISTS idx_verification_tokens_user ON verification_tokens(user_id)")
-        await d1_execute(
-            """CREATE TABLE IF NOT EXISTS pending_registrations (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                email TEXT UNIQUE NOT NULL,
-                hashed_password TEXT NOT NULL,
-                token_hash TEXT UNIQUE NOT NULL,
-                expires_at TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )"""
-        )
-        await d1_execute("CREATE INDEX IF NOT EXISTS idx_pending_registrations_token ON pending_registrations(token_hash)")
+        await d1_execute("UPDATE users SET username = lower(name) WHERE username IS NULL OR username = ''")
+        await d1_execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+        await d1_execute("""CREATE TABLE IF NOT EXISTS user_gateway_configs (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            provider_type TEXT NOT NULL DEFAULT 'openai',
+            encrypted_api_key TEXT NOT NULL,
+            default_model TEXT NOT NULL,
+            base_url TEXT NOT NULL,
+            enabled INTEGER DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        await d1_execute("CREATE INDEX IF NOT EXISTS idx_gateway_configs_user ON user_gateway_configs(user_id)")
+        await d1_execute("CREATE INDEX IF NOT EXISTS idx_gateway_configs_user_provider ON user_gateway_configs(user_id, provider)")
         await d1_execute("CREATE TABLE IF NOT EXISTS auth_migrations (migration_key TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
         return
 
@@ -61,30 +54,24 @@ async def migrate_auth_schema() -> None:
             await connection.execute(text("ALTER TABLE users ADD COLUMN email_verified_at DATETIME"))
         if "is_active" not in names:
             await connection.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1"))
-        await connection.execute(text(
-            """CREATE TABLE IF NOT EXISTS verification_tokens (
-                id VARCHAR(255) PRIMARY KEY,
-                user_id VARCHAR(255) NOT NULL,
-                token_hash VARCHAR(255) UNIQUE NOT NULL,
-                expires_at DATETIME NOT NULL,
-                used_at DATETIME,
-                created_at DATETIME NOT NULL
-            )""")
-        )
-        await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_verification_tokens_hash ON verification_tokens(token_hash)"))
-        await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_verification_tokens_user ON verification_tokens(user_id)"))
-        await connection.execute(text(
-            """CREATE TABLE IF NOT EXISTS pending_registrations (
-                id VARCHAR(255) PRIMARY KEY,
-                name VARCHAR(100) NOT NULL,
-                email VARCHAR(255) UNIQUE NOT NULL,
-                hashed_password VARCHAR(255) NOT NULL,
-                token_hash VARCHAR(255) UNIQUE NOT NULL,
-                expires_at DATETIME NOT NULL,
-                created_at DATETIME NOT NULL
-            )"""
-        ))
-        await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_pending_registrations_token ON pending_registrations(token_hash)"))
+        if "username" not in names:
+            await connection.execute(text("ALTER TABLE users ADD COLUMN username VARCHAR(64)"))
+        await connection.execute(text("UPDATE users SET username = lower(name) WHERE username IS NULL OR username = ''"))
+        await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)"))
+        await connection.execute(text("""CREATE TABLE IF NOT EXISTS user_gateway_configs (
+            id VARCHAR(255) PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            provider VARCHAR(100) NOT NULL,
+            provider_type VARCHAR(50) NOT NULL DEFAULT 'openai',
+            encrypted_api_key TEXT NOT NULL,
+            default_model VARCHAR(255) NOT NULL,
+            base_url VARCHAR(500) NOT NULL,
+            enabled BOOLEAN DEFAULT 1,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL
+        )"""))
+        await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_gateway_configs_user ON user_gateway_configs(user_id)"))
+        await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_gateway_configs_user_provider ON user_gateway_configs(user_id, provider)"))
         await connection.execute(text("CREATE TABLE IF NOT EXISTS auth_migrations (migration_key VARCHAR(255) PRIMARY KEY, applied_at DATETIME NOT NULL)"))
 
 

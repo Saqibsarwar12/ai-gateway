@@ -72,6 +72,22 @@ def create_api_key() -> str:
     return f"sk-{secrets.token_urlsafe(32)}"
 
 
+def _gateway_fernet():
+    from cryptography.fernet import Fernet
+    import base64
+    configured = settings.PERSONAL_GATEWAY_ENCRYPTION_KEY or settings.SECRET_KEY
+    digest = hashlib.sha256(configured.encode()).digest()
+    return Fernet(base64.urlsafe_b64encode(digest))
+
+
+def encrypt_gateway_secret(value: str) -> str:
+    return _gateway_fernet().encrypt(value.encode()).decode()
+
+
+def decrypt_gateway_secret(value: str) -> str:
+    return _gateway_fernet().decrypt(value.encode()).decode()
+
+
 # ─── Header / dependency plumbing ──────────────────────────────────────
 async def _resolve_user(authorization: str = Header(None)) -> Optional[dict]:
     if not authorization:

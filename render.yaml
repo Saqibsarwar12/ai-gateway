@@ -12,8 +12,11 @@ services:
   - key: NEXT_OUTPUT
     value: standalone
   - key: APP_NAME
-    value: AI Gateway  - key: APP_BASE_URL
+    value: AI Gateway
+  - key: APP_BASE_URL
     value: https://saki-gateway.vercel.app
+  - key: PUBLIC_GATEWAY_BASE_URL
+    value: https://saki-gateway.indevs.in
   - key: DEBUG
     value: 'false'
   - key: USE_SQLITE
@@ -28,8 +31,6 @@ services:
     value: e14f279e-fb81-4190-8820-4305bea8e140
   - key: ADMIN_EMAIL
     value: saqibsarwar003@gmail.com
-  - key: ADMIN_PASSWORD
-    value: Biscoe@@3
   - key: SECRET_KEY
     generateValue: true
   - key: PORT
@@ -41,4 +42,6 @@ services:
   - key: EMAIL_FROM_NAME
     value: Saki Gateway
   - key: BREVO_API_KEY
+    sync: false
+  - key: PERSONAL_GATEWAY_ENCRYPTION_KEY
     sync: false

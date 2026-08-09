@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.core.config import settings
 from app.api.v1 import admin
+from app.api.personal_gateway import router as personal_gateway_router
 from app.api.gateway import make_openai_router
 from app.db.migrations import migrate_auth_schema, cleanup_legacy_users
 
@@ -58,6 +59,7 @@ async def lifespan(app: FastAPI):
                 admin_user = User(
                     id="admin-001",
                     name="Admin",
+                    username="admin",
                     email=settings.ADMIN_EMAIL,
                     hashed_password=hash_password(settings.ADMIN_PASSWORD),
                     role="admin",
@@ -71,6 +73,7 @@ async def lifespan(app: FastAPI):
                 await session.commit()
                 print(f"Admin created: {settings.ADMIN_EMAIL} / API Key: {api_key}")
             else:
+                admin_user.username = admin_user.username or "admin"
                 admin_user.email_verified_at = admin_user.email_verified_at or datetime.utcnow()
                 await session.commit()
                 print(f"Admin preserved: {settings.ADMIN_EMAIL}")
@@ -107,6 +110,7 @@ app.include_router(make_openai_router("v1"), prefix="/v1", tags=["AI Gateway v1"
 app.include_router(make_openai_router("v2"), prefix="/v2", tags=["AI Gateway v2"])
 app.include_router(make_openai_router("v3"), prefix="/v3", tags=["AI Gateway v3"])
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
+app.include_router(personal_gateway_router, prefix="/{username}/v1", tags=["Personal Gateway"])
 
 
 @app.get("/health")

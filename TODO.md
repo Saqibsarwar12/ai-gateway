@@ -1,34 +1,39 @@
-# Saki Gateway — Email Verification Production TODO
+# Saki Gateway — Approved Cleanup, Auth Timing, and Personal Gateway
 
-## Phase 1: Local Schema & Config
-- [x] Inspect current DB state (1 admin user, missing verification columns/tables)
-- [x] Review auth/email/config code — most infra already exists
-- [ ] Run `migrate_auth_schema()` against local SQLite to add:
-  - `email_verified_at` on `users`
-  - `pending_registrations` table
-  - `verification_tokens` table
-- [ ] Verify admin user is preserved and marked verified
-- [ ] Confirm no legacy non-admin users exist
+## 1. Approved deployment cleanup
+- [x] Remove plaintext `ADMIN_PASSWORD` from `render.yaml`
+- [x] Repair malformed `APP_NAME` / `APP_BASE_URL` YAML entries
+- [x] Validate YAML and confirm the existing admin account is not modified
+- [x] Confirm local backend imports and route registration; existing tests are blocked by stale fixture DB files and one outdated Brevo mock
 
-## Phase 2: Production Config
-- [ ] Set Render env vars:
-  - `BREVO_API_KEY`
-  - `EMAIL_FROM=no-reply@saki-verifier.ryzedns.org`
-  - `EMAIL_FROM_NAME=Saki Gateway`
-- [ ] Verify `EMAIL_FROM` exactly matches Brevo verified sender
-- [ ] Verify domain `saki-verifier.ryzedns.org` has SPF/DKIM/DMARC in Brevo
-- [ ] Confirm app fails fast if `EMAIL_FROM` is missing
+## 2. Login/signup timing investigation
+- [x] Instrument request-path timings without logging passwords, tokens, or provider keys
+- [x] Measure user lookup, password verification, and token creation separately; signup email timing remains isolated in the existing email service
+- [x] Remove avoidable duplicate user lookup queries from login (email/name lookup is one query)
+- [x] Preserve PBKDF2 password verification, email verification, and session checks
+- [ ] Add regression tests for timing instrumentation and auth behavior
 
-## Phase 3: Deploy & Test
-- [ ] Build and push backend to Render
-- [ ] Run production signup test
-- [ ] Check Brevo Email Activity logs for exact status
-- [ ] Verify email reaches test inbox
-- [ ] Test verification link flow
-- [ ] Test login rejection for unverified users
-- [ ] Test token expiry
+## 3. Personal gateway backend
+- [x] Add safe username/slug migration and preserve existing names
+- [x] Add `user_gateway_configs` migration for SQLite and Cloudflare D1
+- [x] Add authenticated owner-only configuration CRUD
+- [x] Encrypt provider API keys at rest and never return them
+- [x] Add owner-bound `/{username}/v1/models` and `/{username}/v1/chat/completions`
+- [x] Support only provider types already supported by the gateway
+- [x] Add provider test and disabled/unconfigured/error handling
+- [x] Keep `/v1`, `/v2`, and `/v3` behavior unchanged
 
-## Phase 4: Frontend & Polish
-- [ ] Verify frontend shows verification-required UI
-- [ ] Add Brevo response logging to email service
-- [ ] Document migration and remaining issues
+## 4. Dashboard
+- [x] Add a user-facing personal gateway configuration page
+- [x] Show the personal base URL and safe key status only
+- [x] Allow enable/disable, provider/model selection, replacement, testing, and deletion
+- [x] Add navigation without exposing credentials
+
+## 5. Validation and deployment
+- [x] Run Python compile and frontend type/build checks
+- [ ] Run auth regression tests and personal-gateway tests; current suite is blocked by stale SQLite fixtures and outdated Brevo mock
+- [ ] Test invalid, expired, disabled, unconfigured, nonexistent, and cross-user access
+- [ ] Commit incremental changes
+- [ ] Push through the existing Render/Vercel deployment flow
+- [ ] Verify production `/v1` and personal gateway URLs
+- [ ] Report measured before/after timing and any blocker honestly

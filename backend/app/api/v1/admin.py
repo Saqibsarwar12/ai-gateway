@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from sqlalchemy import select, func
 from app.db.session import async_session_maker
-from app.db.models import Provider, RoutingRule, User, Model, RequestLog, UsageStats, APIKey, VerificationToken, PendingRegistration
+from app.db.models import Provider, RoutingRule, User, Model, RequestLog, UsageStats, APIKey, VerificationToken, PendingRegistration, UserGatewayConfig
 from app.models.schemas import (
     ProviderCreate, ProviderUpdate, ProviderResponse,
     RoutingRuleCreate, RoutingRuleUpdate, RoutingRuleResponse,
@@ -32,7 +32,7 @@ from app.models.schemas import (
 from app.core.auth import (
     hash_password, verify_password, create_access_token, create_api_key,
     decode_token, get_current_user_full, require_user as _require_user_payload,
-    ACCESS_TOKEN_EXPIRE_HOURS, pwd_scheme,
+    ACCESS_TOKEN_EXPIRE_HOURS, pwd_scheme, encrypt_gateway_secret,
 )
 from app.core.config import settings
 import shortuuid
@@ -42,6 +42,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 from pydantic import BaseModel, EmailStr, Field
 from app.services.email import EmailDeliveryError, send_verification_email
+from app.core.usernames import normalize_username, fallback_username, valid_username
 
 router = APIRouter()
 
@@ -149,28 +150,35 @@ async def login(body: LoginBody, request: Request):
     Returns a 30-day JWT and the user record. Never includes api_key
     unless the caller is an admin.
     """
+    started = time.perf_counter()
     _check_login_rate_limit(_client_ip(request))
     identifier = (body.identifier or body.email or "").strip()
     if not identifier or not body.password:
         raise HTTPException(status_code=400, detail="Missing identifier or password")
 
+    lookup_started = time.perf_counter()
     async with async_session_maker() as session:
-        # Try email first, then name (username)
-        result = await session.execute(select(User).where(User.email == identifier))
+        result = await session.execute(select(User).where((User.email == identifier) | (User.name == identifier)).limit(1))
         user = result.scalar_one_or_none()
-        if not user:
-            result = await session.execute(select(User).where(User.name == identifier))
-            user = result.scalar_one_or_none()
+        lookup_ms = round((time.perf_counter() - lookup_started) * 1000, 2)
 
-        if not user or not user.hashed_password or not verify_password(body.password, user.hashed_password):
+        hash_started = time.perf_counter()
+        valid_password = bool(user and user.hashed_password and verify_password(body.password, user.hashed_password))
+        hash_ms = round((time.perf_counter() - hash_started) * 1000, 2)
+        if not user or not valid_password:
+            print(f"auth.login timing lookup_ms={lookup_ms} hash_ms={hash_ms} token_ms=0 total_ms={round((time.perf_counter() - started) * 1000, 2)} result=reject")
             raise HTTPException(status_code=401, detail="Invalid credentials")
         if not user.is_active:
             raise HTTPException(status_code=403, detail="Account is disabled")
         await _require_verified_user(user)
 
+        token_started = time.perf_counter()
         token = create_access_token(
             {"sub": user.id, "email": user.email, "role": user.role},
         )
+        token_ms = round((time.perf_counter() - token_started) * 1000, 2)
+        total_ms = round((time.perf_counter() - started) * 1000, 2)
+        print(f"auth.login timing lookup_ms={lookup_ms} hash_ms={hash_ms} token_ms={token_ms} total_ms={total_ms} result=success")
         is_admin = user.role == "admin"
         return {
             "access_token": token,
@@ -200,6 +208,9 @@ async def register(body: RegisterBody, request: Request):
     _check_registration_rate_limit(_client_ip(request))
     name = body.name.strip()
     email = body.email.strip().lower()
+    name = normalize_username(name)
+    if not valid_username(name):
+        raise HTTPException(status_code=400, detail="Username must start with a letter and contain only lowercase letters, numbers, and hyphens")
     if len(name) < 2:
         raise HTTPException(status_code=400, detail="Username must be at least 2 characters")
     if len(body.password) < 8:
@@ -272,6 +283,7 @@ async def verify_email(token: str):
             user = User(
                 id=shortuuid.uuid(),
                 name=pending.name,
+                username=pending.name,
                 email=pending.email,
                 hashed_password=pending.hashed_password,
                 role="user",
@@ -344,6 +356,34 @@ async def change_password(body: PasswordChangeBody, payload: dict = Depends(requ
         u.hashed_password = hash_password(body.new_password)
         await session.commit()
     return {"changed": True}
+
+
+# ─── Personal gateway configuration (user-owned) ───────────────────────
+class PersonalGatewayConfigBody(BaseModel):
+    provider: str = Field(min_length=1, max_length=64)
+    provider_type: str = Field(default="openai", min_length=1, max_length=32)
+    api_key: str = Field(min_length=1, max_length=4096)
+    default_model: str = Field(min_length=1, max_length=255)
+    base_url: Optional[str] = Field(default=None, max_length=512)
+    enabled: bool = True
+
+
+def _personal_gateway_base_url(username: str) -> str:
+    return f"{settings.PUBLIC_GATEWAY_BASE_URL.rstrip('/')}/{username}/v1"
+
+
+def _personal_config_response(config: UserGatewayConfig, username: str) -> dict:
+    return {
+        "id": config.id,
+        "provider": config.provider,
+        "provider_type": config.provider_type,
+        "default_model": config.default_model,
+        "base_url": config.base_url,
+        "enabled": bool(config.enabled),
+        "gateway_url": _personal_gateway_base_url(username),
+        "has_api_key": True,
+        "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+    }
 
 
 # ─── Providers (admin only — non-admins see nothing) ────────
@@ -603,6 +643,7 @@ async def create_user(data: UserCreate, _: dict = Depends(require_admin)):
         u = User(
             id=shortuuid.uuid(),
             name=data.name,
+            username=normalize_username(data.name),
             email=normalized_email,
             hashed_password=hash_password(data.password),
             role=data.role,
@@ -1050,3 +1091,81 @@ async def test_provider_key(body: TestKeyBody, _: dict = Depends(require_admin))
         return {"ok": False, "error": "Timed out (30s)"}
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.get("/gateway/me")
+async def get_my_gateway(payload: dict = Depends(require_user)):
+    async with async_session_maker() as session:
+        result = await session.execute(select(User).where(User.id == payload["sub"]))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        username = user.username
+        if not username:
+            username = fallback_username(user.id)
+            user.username = username
+            await session.commit()
+        config_result = await session.execute(select(UserGatewayConfig).where(UserGatewayConfig.user_id == user.id).order_by(UserGatewayConfig.updated_at.desc()))
+        configs = config_result.scalars().all()
+        return {
+            "username": username,
+            "base_url": f"{settings.PUBLIC_GATEWAY_BASE_URL.rstrip('/')}/{username}/v1",
+            "enabled": any(c.enabled for c in configs),
+            "configs": [{"id": c.id, "provider": c.provider, "provider_type": c.provider_type, "default_model": c.default_model, "base_url": c.base_url, "enabled": c.enabled} for c in configs],
+        }
+
+
+class GatewayConfigBody(BaseModel):
+    provider: str = Field(min_length=2, max_length=64)
+    provider_type: str = Field(default="openai", min_length=3, max_length=32)
+    api_key: Optional[str] = Field(default=None, max_length=4096)
+    default_model: str = Field(min_length=1, max_length=255)
+    base_url: str = Field(min_length=8, max_length=500)
+    enabled: bool = True
+
+
+@router.put("/gateway/me")
+async def upsert_my_gateway(body: GatewayConfigBody, payload: dict = Depends(require_user)):
+    if body.provider_type not in {"openai", "anthropic"}:
+        raise HTTPException(status_code=400, detail="Unsupported provider type")
+    if not body.base_url.lower().startswith(("https://", "http://")):
+        raise HTTPException(status_code=400, detail="Base URL must be HTTP or HTTPS")
+    async with async_session_maker() as session:
+        user_result = await session.execute(select(User).where(User.id == payload["sub"]))
+        user = user_result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not user.username:
+            user.username = fallback_username(user.id)
+        result = await session.execute(select(UserGatewayConfig).where(UserGatewayConfig.user_id == user.id, UserGatewayConfig.provider == body.provider))
+        config = result.scalar_one_or_none()
+        if not config:
+            count_result = await session.execute(select(func.count(UserGatewayConfig.id)).where(UserGatewayConfig.user_id == user.id))
+            if (count_result.scalar() or 0) >= settings.PERSONAL_GATEWAY_MAX_CONFIGS:
+                raise HTTPException(status_code=400, detail="Personal provider configuration limit reached")
+            if not body.api_key:
+                raise HTTPException(status_code=400, detail="API key is required for a new provider")
+            config = UserGatewayConfig(id=shortuuid.uuid(), user_id=user.id, provider=body.provider, provider_type=body.provider_type, encrypted_api_key=encrypt_gateway_secret(body.api_key), default_model=body.default_model, base_url=body.base_url.rstrip('/'), enabled=body.enabled, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+            session.add(config)
+        else:
+            if body.api_key:
+                config.encrypted_api_key = encrypt_gateway_secret(body.api_key)
+            config.provider_type = body.provider_type
+            config.default_model = body.default_model
+            config.base_url = body.base_url.rstrip('/')
+            config.enabled = body.enabled
+            config.updated_at = datetime.utcnow()
+        await session.commit()
+        return {"saved": True, "username": user.username, "base_url": f"{settings.PUBLIC_GATEWAY_BASE_URL.rstrip('/')}/{user.username}/v1", "config": {"id": config.id, "provider": config.provider, "provider_type": config.provider_type, "default_model": config.default_model, "base_url": config.base_url, "enabled": config.enabled}}
+
+
+@router.delete("/gateway/me/{config_id}")
+async def delete_my_gateway(config_id: str, payload: dict = Depends(require_user)):
+    async with async_session_maker() as session:
+        result = await session.execute(select(UserGatewayConfig).where(UserGatewayConfig.id == config_id, UserGatewayConfig.user_id == payload["sub"]))
+        config = result.scalar_one_or_none()
+        if not config:
+            raise HTTPException(status_code=404, detail="Gateway configuration not found")
+        await session.delete(config)
+        await session.commit()
+        return {"deleted": True}

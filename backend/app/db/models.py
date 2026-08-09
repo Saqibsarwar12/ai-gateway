@@ -76,6 +76,7 @@ class User(Base):
 
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
+    username = Column(String, unique=True, index=True)
     email = Column(String, unique=True, nullable=False)
     hashed_password = Column(String)
     role = Column(String, default="user")  # admin | user | readonly
@@ -172,4 +173,24 @@ class UsageStats(Base):
 
     __table_args__ = (
         Index("idx_usage_stats_period", "period_date"),
+    )
+
+
+class UserGatewayConfig(Base):
+    __tablename__ = "user_gateway_configs"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False)
+    provider = Column(String, nullable=False)
+    provider_type = Column(String, nullable=False, default="openai")
+    encrypted_api_key = Column(Text, nullable=False)
+    default_model = Column(String, nullable=False)
+    base_url = Column(String, nullable=False)
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_gateway_configs_user", "user_id"),
+        Index("idx_gateway_configs_user_provider", "user_id", "provider"),
     )
