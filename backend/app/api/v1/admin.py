@@ -158,7 +158,14 @@ async def login(body: LoginBody, request: Request):
 
     lookup_started = time.perf_counter()
     async with async_session_maker() as session:
-        result = await session.execute(select(User).where((User.email == identifier) | (User.name == identifier)).limit(1))
+        lookup_identifier = identifier.lower()
+        result = await session.execute(
+            select(User).where(
+                (User.email == lookup_identifier)
+                | (User.name == identifier)
+                | (User.username == lookup_identifier)
+            ).limit(1)
+        )
         user = result.scalar_one_or_none()
         lookup_ms = round((time.perf_counter() - lookup_started) * 1000, 2)
 
@@ -219,10 +226,21 @@ async def register(body: RegisterBody, request: Request):
 
     lookup_started = time.perf_counter()
     async with async_session_maker() as session:
-        existing = await session.execute(select(User).where((User.email == email) | (User.name == name) | (User.username == name)).limit(1))
+        existing = await session.execute(
+            select(User).where(
+                (User.email == email)
+                | (User.name == name)
+                | (User.username == name)
+            ).limit(1)
+        )
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Email or username already registered")
-        pending_existing = await session.execute(select(PendingRegistration).where((PendingRegistration.email == email) | (PendingRegistration.name == name)).limit(1))
+        pending_existing = await session.execute(
+            select(PendingRegistration).where(
+                (PendingRegistration.email == email)
+                | (PendingRegistration.name == name)
+            ).limit(1)
+        )
         pending_row = pending_existing.scalar_one_or_none()
         lookup_ms = round((time.perf_counter() - lookup_started) * 1000, 2)
 
