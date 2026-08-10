@@ -6,7 +6,7 @@ const nextConfig = {
   trailingSlash: false,
   output: process.env.NEXT_OUTPUT || 'standalone',
   env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || '',
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'https://saki-gateway.indevs.in',
   },
 };
 export default nextConfig;
