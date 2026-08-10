@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState, useCallback } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Spinner } from '@/components/UI';
@@ -15,11 +15,6 @@ function VerifyEmailContent() {
   const token = searchParams.get('token');
   const [status, setStatus] = useState<Status>('loading');
   const [message, setMessage] = useState('');
-
-  const performAutoLogin = useCallback(async () => {
-    sessionStorage.setItem('just_verified', 'true');
-    router.push('/login?verified=1');
-  }, [router]);
 
   useEffect(() => {
     if (!token) {
@@ -51,10 +46,14 @@ function VerifyEmailContent() {
           if (body.email) {
             sessionStorage.setItem('verified_email', body.email);
           }
+          if (body.access_token && body.user) {
+            localStorage.setItem('ai_gateway_token', body.access_token);
+            localStorage.setItem('ai_gateway_user', JSON.stringify(body.user));
+          }
 
           setTimeout(() => {
-            if (!cancelled) performAutoLogin();
-          }, 2000);
+            if (!cancelled) router.push('/admin');
+          }, 1600);
         }
       } catch (err: any) {
         if (!cancelled) {
@@ -68,7 +67,7 @@ function VerifyEmailContent() {
     return () => {
       cancelled = true;
     };
-  }, [token, performAutoLogin]);
+  }, [token, router]);
 
   return (
     <div className="min-h-screen bg-[#0a0908] text-[#f5f1e8] flex items-center justify-center p-6">

@@ -319,7 +319,14 @@ async def verify_email(token: str):
             session.add(user)
             await session.delete(pending)
             await session.commit()
-            return {"verified": True, "message": "Email verified. Your account is now active. You can sign in."}
+            return {
+                "verified": True,
+                "message": "Email verified. Your account is now active.",
+                "access_token": create_access_token({"sub": user.id, "email": user.email, "role": user.role}),
+                "token_type": "bearer",
+                "expires_in_hours": ACCESS_TOKEN_EXPIRE_HOURS,
+                "user": {"id": user.id, "email": user.email, "name": user.name, "role": user.role, "tier": user.tier, "credits": user.credits, "is_active": user.is_active},
+            }
 
         result = await session.execute(select(VerificationToken).where(VerificationToken.token_hash == token_hash))
         verification = result.scalar_one_or_none()
@@ -333,7 +340,14 @@ async def verify_email(token: str):
         user.is_active = True
         verification.used_at = now
         await session.commit()
-    return {"verified": True, "message": "Email verified. You can now sign in."}
+    return {
+        "verified": True,
+        "message": "Email verified. Your account is now active.",
+        "access_token": create_access_token({"sub": user.id, "email": user.email, "role": user.role}),
+        "token_type": "bearer",
+        "expires_in_hours": ACCESS_TOKEN_EXPIRE_HOURS,
+        "user": {"id": user.id, "email": user.email, "name": user.name, "role": user.role, "tier": user.tier, "credits": user.credits, "is_active": user.is_active},
+    }
 
 @router.get("/auth/me")
 async def me(payload: dict = Depends(require_user)):
@@ -717,6 +731,7 @@ async def delete_user(user_id: str, _: dict = Depends(require_admin)):
         await session.delete(u)
         await session.commit()
         return {"deleted": True}
+@router.get("/analytics")
 async def get_analytics(days: int = 7, _: dict = Depends(require_admin)):
     async with async_session_maker() as session:
         since = datetime.utcnow() - timedelta(days=days)
