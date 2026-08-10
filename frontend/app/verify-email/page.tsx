@@ -61,10 +61,21 @@ function VerifyEmailContent() {
         ) : (
           <>
             <h1 className="mt-3 font-serif text-3xl italic">Enter your code.</h1>
-            <p className="mt-3 text-sm text-[#8a8275] leading-relaxed">We emailed a 4-digit code to activate your account. The code expires in 15 minutes.</p>
+            <p className="mt-3 text-sm text-[#8a8275] leading-relaxed">We emailed a 6-digit code to <strong>{email}</strong> to activate your account. The code expires in 15 minutes.</p>
             <form onSubmit={submit} className="mt-6 flex flex-col gap-4">
               <Input label="Email" type="email" value={email} onChange={setEmail} required autoComplete="email" />
-              <Input label="4-digit verification code" type="text" value={code} onChange={(value) => setCode(value.replace(/\D/g, '').slice(0, 4))} required minLength={4} maxLength={4} inputMode="numeric" autoComplete="one-time-code" placeholder="0000" />
+              <Input
+                label="6-digit verification code"
+                type="text"
+                value={code}
+                onChange={(value) => setCode(value.replace(/\D/g, '').slice(0, 6))}
+                required
+                minLength={6}
+                maxLength={6}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="000000"
+              />
               {message && <div className={`text-sm border rounded px-3 py-2 ${status === 'error' ? 'text-red-400 bg-red-400/10 border-red-400/20' : 'text-[#d4a574] border-[#d4a574]/20 bg-[#d4a574]/10'}`}>{message}</div>}
               <Button type="submit" disabled={status === 'verifying' || code.length !== 4} className="w-full">
                 {status === 'verifying' ? <><Spinner size={12} /> Verifying...</> : 'Verify email'}

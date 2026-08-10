@@ -27,18 +27,22 @@ async def send_verification_email(recipient: str, verification_code: str) -> Non
     if not settings.EMAIL_FROM:
         raise EmailDeliveryError("EMAIL_FROM is not configured")
 
-    subject = "Your Saki Gateway verification code"
+    subject = "Saki Gateway \u2014 Verify your email"
     text = (
-        "Your Saki Gateway verification code is:\n\n"
-        f"{verification_code}\n\n"
-        "Enter this code on the Saki Gateway verification page. "
-        f"It expires in {settings.VERIFICATION_CODE_MINUTES} minutes."
+        "Welcome to Saki Gateway!\n\n"
+        "Your 6-digit email verification code is:\n\n"
+        f"  {verification_code}\n\n"
+        "Enter this code on the verification page to activate your account.\n"
+        f"It expires in {settings.VERIFICATION_CODE_MINUTES} minutes.\n\n"
+        "If you did not create an account, ignore this email.\n"
     )
     html = (
-        "<p>Your Saki Gateway verification code is:</p>"
-        f'<p style="font-size:28px;font-weight:700;letter-spacing:0.35em">{verification_code}</p>'
-        "<p>Enter this code on the Saki Gateway verification page.</p>"
-        f"<p>This code expires in {settings.VERIFICATION_CODE_MINUTES} minutes.</p>"
+        '<p style="font-size:16px;color:#333">Welcome to <strong>Saki Gateway</strong>!</p>'
+        '<p style="font-size:16px;color:#333">Your 6-digit email verification code is:</p>'
+        f'<p style="font-size:36px;font-weight:700;letter-spacing:0.3em;color:#1a1a1a;margin:20px 0">{verification_code}</p>'
+        f'<p style="font-size:14px;color:#666">Enter this code to activate your account.<br/>'
+        f'Code expires in {settings.VERIFICATION_CODE_MINUTES} minutes.</p>'
+        '<p style="font-size:12px;color:#999;margin-top:24px">If you did not request this, ignore this email.</p>'
     )
     payload = {
         "sender": {"email": settings.EMAIL_FROM, "name": settings.EMAIL_FROM_NAME},
@@ -82,5 +86,8 @@ async def send_verification_email(recipient: str, verification_code: str) -> Non
 
     logger.info("Brevo REST verification code response: %s", result)
     if not result.get("messageId"):
-        logger.error("Brevo REST success response did not contain messageId: %s", str(result)[:500])
+        logger.error(
+            "Brevo REST success response did not contain messageId: %s",
+            str(result)[:500],
+        )
         raise EmailDeliveryError("Brevo did not confirm the verification email")

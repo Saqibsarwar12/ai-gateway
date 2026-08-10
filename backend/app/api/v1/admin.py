@@ -1,12 +1,19 @@
 """Admin/User API — providers, routing, models, users, API keys, analytics.
 
 Authentication model:
-  - Public: /auth/login, /auth/register, /health
+  - Public: /auth/login, /auth/register, /auth/verify-code, /auth/verify-email, /health
   - Any logged-in user: /auth/me, /api-keys/me/*, /models (public list),
     /providers/presets, /providers/discover, /providers/test-key,
     /analytics, /logs (own logs only)
   - Admin only: /providers/* (create/update/delete/test/sync),
     /routing/*, /users/*, /admin-only fields like api_key on /auth/me
+
+Registration requires email verification:
+  1. POST /auth/register → stores PendingRegistration, sends 6-digit code
+  2. POST /auth/verify-code → verifies code, creates User row with email_verified_at
+  3. GET /auth/verify-email → legacy link verification via token hash
+
+Login is blocked for unverified users (non-admin) until verify-code completes.
 
 API key ownership:
   - Each user can create multiple APIKey rows via /api-keys/me.
@@ -18,6 +25,8 @@ import os
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from sqlalchemy import select, func
@@ -68,7 +77,7 @@ async def _decode_bearer(authorization: Optional[str] = Header(None)) -> dict:
     return payload
 
 async def require_user(authorization: Optional[str] = Header(None)) -> dict:
-    """Any logged-in user."""
+    """Any logged-in user (must be email-verified for non-admins)."""
     payload = await _decode_bearer(authorization)
     user_id = payload.get("sub")
     async with async_session_maker() as session:
@@ -82,7 +91,7 @@ async def require_user(authorization: Optional[str] = Header(None)) -> dict:
     return payload
 
 async def require_admin(authorization: Optional[str] = Header(None)) -> dict:
-    """Admin role required."""
+    """Admin role required (admins bypass email verification check)."""
     payload = await _decode_bearer(authorization)
     user_id = payload.get("sub")
     async with async_session_maker() as session:
@@ -96,10 +105,40 @@ async def require_admin(authorization: Optional[str] = Header(None)) -> dict:
 
 async def _require_verified_user(user: User) -> None:
     if user.role != "admin" and not user.email_verified_at:
-        raise HTTPException(status_code=403, detail="Email verification required")
+        raise HTTPException(
+            status_code=403,
+            detail="Account not verified. Check your email for a verification code, or sign up again.",
+            headers={"X-Needs-Verification": "true"},
+        )
 
-# ─── Rate limit on login (in-memory, per-IP) ───────────────────
+# ─── Per-email rate limiting for verify-code ─────────────────
+_verify_attempts: dict = {}  # email → list of timestamps
+
+
+def _check_verify_rate_limit(email: str) -> None:
+    """Block after VERIFICATION_CODE_MAX_ATTEMPTS wrong codes in 15 min window."""
+    now = time.time()
+    window = settings.VERIFICATION_CODE_MINUTES * 60
+    key = f"verify:{email.lower()}"
+    attempts = [t for t in _verify_attempts.get(key, []) if now - t < window]
+    if len(attempts) >= settings.VERIFICATION_CODE_MAX_ATTEMPTS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many incorrect codes. Wait 15 minutes or sign up again with a new code.",
+        )
+
+
+def _record_verify_failure(email: str) -> None:
+    key = f"verify:{email.lower()}"
+    if key not in _verify_attempts:
+        _verify_attempts[key] = []
+    _verify_attempts[key].append(time.time())
+
+
+# ─── Global login rate limit (in-memory, per-IP) ─────────────────
 _login_attempts: dict = {}  # ip -> [timestamps]
+
+
 def _check_login_rate_limit(ip: str) -> None:
     now = time.time()
     window = 60 * 5  # 5 minutes
@@ -112,8 +151,6 @@ def _check_login_rate_limit(ip: str) -> None:
         )
     attempts.append(now)
     _login_attempts[ip] = attempts
-
-import time
 
 
 def _check_registration_rate_limit(ip: str) -> None:
@@ -214,9 +251,11 @@ async def register(body: RegisterBody, request: Request):
     """Send verification first; create the real user only after confirmation."""
     started = time.perf_counter()
     _check_registration_rate_limit(_client_ip(request))
+
     name = body.name.strip()
     email = body.email.strip().lower()
     name = normalize_username(name)
+
     if not valid_username(name):
         raise HTTPException(status_code=400, detail="Username must start with a letter and contain only lowercase letters, numbers, and hyphens")
     if len(name) < 2:
@@ -224,31 +263,51 @@ async def register(body: RegisterBody, request: Request):
     if len(body.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
+    # Block registration if email matches the configured admin email
+    if email.lower() == settings.ADMIN_EMAIL.lower():
+        raise HTTPException(status_code=409, detail="This email address cannot be registered")
+
     lookup_started = time.perf_counter()
     async with async_session_maker() as session:
+        # Check for existing verified user
         existing = await session.execute(
             select(User).where(
-                (User.email == email)
-                | (User.name == name)
-                | (User.username == name)
+                (func.lower(User.email) == email.lower())
             ).limit(1)
         )
         if existing.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="Email or username already registered")
-        pending_existing = await session.execute(
-            select(PendingRegistration).where(
-                (PendingRegistration.email == email)
-                | (PendingRegistration.name == name)
+            raise HTTPException(status_code=409, detail="Email already registered. Sign in instead.")
+
+        # Check username conflicts (verified users only)
+        username_conflict = await session.execute(
+            select(User).where(
+                (func.lower(User.username) == name.lower()) |
+                (func.lower(User.name) == name.lower())
             ).limit(1)
         )
-        pending_row = pending_existing.scalar_one_or_none()
-        lookup_ms = round((time.perf_counter() - lookup_started) * 1000, 2)
+        if username_conflict.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Username already taken. Choose a different one.")
 
+        # Clean up any expired pending registration for this email first
+        expired_cleanup = await session.execute(
+            select(PendingRegistration).where(
+                PendingRegistration.email == email
+            ).limit(1)
+        )
+        old_pending = expired_cleanup.scalar_one_or_none()
+        if old_pending:
+            await session.delete(old_pending)
+            await session.flush()
+
+        lookup_ms = round((time.perf_counter() - lookup_started) * 1000, 2)
         hash_started = time.perf_counter()
         hashed_password = hash_password(body.password)
         hash_ms = round((time.perf_counter() - hash_started) * 1000, 2)
+
         now = datetime.utcnow()
-        raw_code = f"{secrets.randbelow(10000):04d}"
+        # 6-digit code for better security
+        raw_code = f"{secrets.randbelow(1000000):06d}"
+
         pending = PendingRegistration(
             id=shortuuid.uuid(),
             name=name,
@@ -259,13 +318,11 @@ async def register(body: RegisterBody, request: Request):
             code_attempts=0,
             created_at=now,
         )
-        if pending_row:
-            await session.delete(pending_row)
-            await session.flush()
         session.add(pending)
         db_started = time.perf_counter()
         await session.commit()
         db_write_ms = round((time.perf_counter() - db_started) * 1000, 2)
+
         email_started = time.perf_counter()
         try:
             await send_verification_email(email, raw_code)
@@ -274,44 +331,72 @@ async def register(body: RegisterBody, request: Request):
             await session.commit()
             print(f"auth.register timing lookup_ms={lookup_ms} hash_ms={hash_ms} db_write_ms={db_write_ms} email_ms={round((time.perf_counter() - email_started) * 1000, 2)} total_ms={round((time.perf_counter() - started) * 1000, 2)} result=email_failure")
             raise HTTPException(status_code=503, detail=f"Verification email could not be sent: {exc}") from exc
+
         email_ms = round((time.perf_counter() - email_started) * 1000, 2)
         total_ms = round((time.perf_counter() - started) * 1000, 2)
         print(f"auth.register timing lookup_ms={lookup_ms} hash_ms={hash_ms} db_write_ms={db_write_ms} email_ms={email_ms} total_ms={total_ms} result=success")
-        return {"status": "verification_required", "email": email, "message": "Check your email to activate your account."}
+
+        return {
+            "status": "verification_required",
+            "email": email,
+            "message": "Check your email to activate your account. The code expires in 15 minutes."
+        }
 
 class VerifyCodeBody(BaseModel):
     email: EmailStr
-    code: str = Field(min_length=4, max_length=4, pattern=r"^\d{4}$")
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
 
 
 @router.post("/auth/verify-code")
 async def verify_code(body: VerifyCodeBody):
+    """Verify the 6-digit code sent to the user's email and activate their account."""
     email = body.email.strip().lower()
     code_hash = hashlib.sha256(body.code.encode()).hexdigest()
     now = datetime.utcnow()
+
+    # Per-email rate limit — blocks before DB lookup
+    _check_verify_rate_limit(email)
+
     async with async_session_maker() as session:
         result = await session.execute(select(PendingRegistration).where(PendingRegistration.email == email))
         pending = result.scalar_one_or_none()
+
         if not pending:
-            raise HTTPException(status_code=400, detail="No pending verification found. Register again.")
+            raise HTTPException(status_code=400, detail="No pending registration found. Please sign up again.")
+
         if pending.expires_at < now:
             await session.delete(pending)
             await session.commit()
-            raise HTTPException(status_code=400, detail="Verification code expired. Register again.")
+            raise HTTPException(status_code=400, detail="Verification code expired. Please sign up again.")
+
+        # Global + per-email rate limits (DB counter as backup after 3 wrong attempts)
         if pending.code_attempts >= settings.VERIFICATION_CODE_MAX_ATTEMPTS:
             await session.delete(pending)
             await session.commit()
-            raise HTTPException(status_code=429, detail="Too many incorrect codes. Register again.")
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many incorrect attempts. Please sign up again.",
+            )
+
         if not secrets.compare_digest(code_hash, pending.token_hash):
             pending.code_attempts += 1
             pending.last_attempt_at = now
             await session.commit()
-            raise HTTPException(status_code=400, detail="Incorrect verification code.")
-        existing_email = await session.execute(select(User).where(User.email == email))
+            # Also record in global in-memory rate limit
+            _record_verify_failure(email)
+            remaining = settings.VERIFICATION_CODE_MAX_ATTEMPTS - pending.code_attempts
+            raise HTTPException(
+                status_code=400,
+                detail=f"Incorrect code. {remaining} attempt{'s' if remaining != 1 else ''} remaining.",
+            )
+
+        # Final check: verified user already exists for this email
+        existing_email = await session.execute(select(User).where(func.lower(User.email) == email.lower()))
         if existing_email.scalar_one_or_none():
             await session.delete(pending)
             await session.commit()
-            raise HTTPException(status_code=409, detail="Email already registered")
+            raise HTTPException(status_code=409, detail="Email already registered. Sign in instead.")
+
         user = User(
             id=shortuuid.uuid(),
             name=pending.name,
@@ -330,13 +415,22 @@ async def verify_code(body: VerifyCodeBody):
         await session.delete(pending)
         await session.commit()
         token = create_access_token({"sub": user.id, "email": user.email, "role": user.role})
+
     return {
         "verified": True,
         "message": "Email verified. Your account is now active.",
         "access_token": token,
         "token_type": "bearer",
         "expires_in_hours": ACCESS_TOKEN_EXPIRE_HOURS,
-        "user": {"id": user.id, "email": user.email, "name": user.name, "role": user.role, "tier": user.tier, "credits": user.credits, "is_active": user.is_active},
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "role": user.role,
+            "tier": user.tier,
+            "credits": user.credits,
+            "is_active": user.is_active
+        },
     }
 
 
