@@ -8,6 +8,7 @@ import { Spinner } from '@/components/UI';
 type Status = 'loading' | 'verifying' | 'success' | 'error';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
+const VERIFY_API_PATH = '/admin/auth/verify-email';
 
 function VerifyEmailContent() {
   const searchParams = useSearchParams();
@@ -27,9 +28,9 @@ function VerifyEmailContent() {
 
     async function verify() {
       try {
-        const apiBase = API_BASE;
+        const verifyUrl = `${API_BASE}${VERIFY_API_PATH}?token=${encodeURIComponent(token!)}`;
         const res = await fetch(
-          `${apiBase}/admin/auth/verify-email?token=${encodeURIComponent(token!)}`,
+          verifyUrl,
           { method: 'GET' }
         );
         const body = await res.json().catch(() => ({}));
