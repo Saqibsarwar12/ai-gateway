@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api-proxy';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saki-gateway.indevs.in';
 
 interface User {
   id: string;
@@ -68,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Accept email OR username — backend looks up by email OR name.
     const res = await fetch(`${API_BASE}/admin/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ identifier, password }),
     });
     if (!res.ok) {
@@ -87,7 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = async (data: { name: string; email: string; password: string }): Promise<{ status: string; email: string }> => {
     const res = await fetch(`${API_BASE}/admin/auth/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(data),
     });
     if (!res.ok) {
@@ -113,7 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!state.token) return;
     try {
       const res = await fetch(`${API_BASE}/admin/auth/me`, {
-        headers: { Authorization: `Bearer ${state.token}` },
+        headers: { Authorization: `Bearer ${state.token}`, Accept: 'application/json' },
       });
       if (res.ok) {
         const user = await res.json();

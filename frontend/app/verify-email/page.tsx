@@ -1,17 +1,16 @@
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Spinner } from '@/components/UI';
 
 type Status = 'loading' | 'verifying' | 'success' | 'error';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api-proxy';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saki-gateway.indevs.in';
 
 function VerifyEmailContent() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const token = searchParams.get('token');
   const [status, setStatus] = useState<Status>('loading');
   const [message, setMessage] = useState('');
@@ -51,8 +50,8 @@ function VerifyEmailContent() {
             localStorage.setItem('ai_gateway_user', JSON.stringify(body.user));
           }
 
-          setTimeout(() => {
-            if (!cancelled) router.push('/admin');
+          window.setTimeout(() => {
+            if (!cancelled) window.location.assign('/admin');
           }, 1600);
         }
       } catch (err: any) {
@@ -67,7 +66,7 @@ function VerifyEmailContent() {
     return () => {
       cancelled = true;
     };
-  }, [token, router]);
+  }, [token]);
 
   return (
     <div className="min-h-screen bg-[#0a0908] text-[#f5f1e8] flex items-center justify-center p-6">
