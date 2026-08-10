@@ -29,7 +29,13 @@
 - [x] Allow enable/disable, provider/model selection, replacement, testing, and deletion
 - [x] Add navigation without exposing credentials
 
-## 5. Validation and deployment
+## 5. Verification-page and dashboard regression fix
+- [x] Identify the blank verification page as a frontend runtime/deployment path problem, not an expired token
+- [x] Remove hardcoded production API fallbacks so Vercel rewrites and Render's same-origin proxy are used consistently
+- [x] Keep verification states visible and redirect only after successful verification
+- [x] Build and verify the production bundle and live verification/error routes
+
+## 6. Validation and deployment
 - [x] Run Python compile and frontend type/build checks
 - [ ] Run auth regression tests and personal-gateway tests; current suite is blocked by stale SQLite fixtures and outdated Brevo mock
 - [ ] Test invalid, expired, disabled, unconfigured, nonexistent, and cross-user access
@@ -37,3 +43,12 @@
 - [ ] Push through the existing Render/Vercel deployment flow
 - [ ] Verify production `/v1` and personal gateway URLs
 - [ ] Report measured before/after timing and any blocker honestly
+
+## 6. Production verification-page and dashboard routing remediation
+- [ ] Unify frontend API base to same-origin paths across Render and Vercel
+- [ ] Add Vercel rewrites for `/admin/*` and personal gateway routes
+- [ ] Make verification page show a bounded loading/error state and redirect only after successful activation
+- [ ] Build and type-check the frontend
+- [ ] Run backend auth regression tests and live endpoint checks
+- [ ] Push the fix and redeploy through the existing Render/Vercel flow
+- [ ] Verify production signup, verification, login, logout, analytics, `/v1`, and personal gateway behavior

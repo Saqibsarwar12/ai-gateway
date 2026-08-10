@@ -7,7 +7,7 @@ import { Spinner } from '@/components/UI';
 
 type Status = 'loading' | 'verifying' | 'success' | 'error';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saki-gateway.indevs.in';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
 function VerifyEmailContent() {
   const searchParams = useSearchParams();

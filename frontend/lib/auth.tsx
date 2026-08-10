@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saki-gateway.indevs.in';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
 interface User {
   id: string;

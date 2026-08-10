@@ -39,9 +39,11 @@ export default function OverviewPage() {
     ];
     if (isAdmin) {
       fetches.push(
-        fetch(`${API_BASE_URL}/admin/providers`, { headers }).then((r) =>
-          r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`))
-        )
+        fetch(`${API_BASE_URL}/admin/providers`, { headers }).then(async (r) => {
+          if (r.ok) return r.json();
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.detail || `${r.status} ${r.statusText}`);
+        })
       );
     }
 

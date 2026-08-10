@@ -46,7 +46,11 @@ export default function AnalyticsPage() {
           if (!r.ok) throw new Error(`${r.status}`);
           return r.json();
         }),
-        fetch(`${API_BASE_URL}${logsEndpoint}?limit=500`, { headers }).then((r) => (r.ok ? r.json() : [])),
+        fetch(`${API_BASE_URL}${logsEndpoint}?limit=500`, { headers }).then(async (r) => {
+          if (r.ok) return r.json();
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.detail || `${r.status} ${r.statusText}`);
+        }),
       ]);
       setStats(s);
       setLogs(l);
