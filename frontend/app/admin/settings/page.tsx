@@ -13,7 +13,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
-  const API_BASE = process.env.NEXT_PUBLIC_PUBLIC_URL || '';
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api-proxy';
 
   async function changePwd(e: React.FormEvent) {
     e.preventDefault();
@@ -22,8 +22,8 @@ export default function SettingsPage() {
     if (newPwd.length < 8) return setMsg({ kind: 'err', text: 'New password must be at least 8 characters' });
     setSaving(true);
     try {
-      // Self-service: call register-style update on /api-proxy/admin/users/<me> with password
-      const r = await fetch(`/api-proxy/admin/users/${user?.id}`, {
+      // Self-service: call register-style update on /admin/users/<me> with password
+      const r = await fetch(`${API_BASE}/admin/users/${user?.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ password: newPwd }),

@@ -130,9 +130,9 @@ export default function LoginPage() {
             <Button type="submit" disabled={loading} className="w-full" size="lg">
               {loading ? (
                 <span className="row" style={{ gap: '0.5rem', justifyContent: 'center' }}>
-                  <Spinner size={12} /> Authenticating…
+                  <Spinner size={12} /> Signing in...
                 </span>
-              ) : '→ Enter admin panel'}
+              ) : '→ Sign in'}
             </Button>
           </form>
 

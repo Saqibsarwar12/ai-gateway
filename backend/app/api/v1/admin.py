@@ -161,9 +161,9 @@ async def login(body: LoginBody, request: Request):
         lookup_identifier = identifier.lower()
         result = await session.execute(
             select(User).where(
-                (User.email == lookup_identifier)
-                | (User.name == identifier)
-                | (User.username == lookup_identifier)
+                (func.lower(User.email) == lookup_identifier)
+                | (func.lower(User.name) == lookup_identifier)
+                | (func.lower(User.username) == lookup_identifier)
             ).limit(1)
         )
         user = result.scalar_one_or_none()
@@ -704,13 +704,19 @@ async def delete_user(user_id: str, _: dict = Depends(require_admin)):
         u = result.scalar_one_or_none()
         if not u:
             raise HTTPException(status_code=404, detail="User not found")
+        # Cascade delete related data so we dont leave orphaned rows
+        from app.db.models import APIKey, UserGatewayConfig, VerificationToken, RequestLog, UsageStats
+        from sqlalchemy import delete as sqla_delete
+        await session.execute(sqla_delete(APIKey).where(APIKey.user_id == user_id))
+        await session.execute(sqla_delete(UserGatewayConfig).where(UserGatewayConfig.user_id == user_id))
+        await session.execute(sqla_delete(VerificationToken).where(VerificationToken.user_id == user_id))
+        await session.execute(sqla_delete(RequestLog).where(RequestLog.user_id == user_id))
+
+
+        await session.execute(sqla_delete(UsageStats).where(UsageStats.user_id == user_id))
         await session.delete(u)
         await session.commit()
         return {"deleted": True}
-
-
-# ─── Analytics (admin only — internal business data) ─────────
-@router.get("/analytics")
 async def get_analytics(days: int = 7, _: dict = Depends(require_admin)):
     async with async_session_maker() as session:
         since = datetime.utcnow() - timedelta(days=days)

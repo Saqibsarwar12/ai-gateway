@@ -14,7 +14,7 @@ services:
   - key: APP_NAME
     value: AI Gateway
   - key: APP_BASE_URL
-    value: https://saki-gateway.vercel.app
+    value: https://saki-gateway.indevs.in
   - key: PUBLIC_GATEWAY_BASE_URL
     value: https://saki-gateway.indevs.in
   - key: DEBUG
