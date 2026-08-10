@@ -140,10 +140,26 @@ async def proxy_to_nextjs(path: str, request: Request):
                 headers={k: v for k, v in request.headers.items() if k.lower() != "host"},
                 content=await request.body(),
             )
+            response_headers = {
+                key: value
+                for key, value in resp.headers.items()
+                if key.lower() not in {
+                    "content-encoding",
+                    "content-length",
+                    "transfer-encoding",
+                    "connection",
+                    "keep-alive",
+                    "proxy-authenticate",
+                    "proxy-authorization",
+                    "te",
+                    "trailers",
+                    "upgrade",
+                }
+            }
             return Response(
                 content=resp.content,
                 status_code=resp.status_code,
-                headers=dict(resp.headers),
+                headers=response_headers,
             )
     except httpx.ConnectError:
         return Response(

@@ -330,6 +330,9 @@ class D1Session:
         self._deletes = []
         self._snapshots = {}
 
+    async def flush(self):
+        pass
+
     async def close(self):
         pass
 

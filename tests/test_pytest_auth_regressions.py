@@ -49,8 +49,8 @@ def setup_db():
 async def test_auth_flow_and_verification(setup_db, monkeypatch):
     sent = []
 
-    async def fake_email(recipient, url):
-        sent.append((recipient, url))
+    async def fake_email(recipient, code):
+        sent.append((recipient, code))
 
     monkeypatch.setattr(admin, "send_verification_email", fake_email)
     admin._login_attempts.clear()
@@ -65,20 +65,19 @@ async def test_auth_flow_and_verification(setup_db, monkeypatch):
         await admin.login(admin.LoginBody(identifier="hari@example.com", password="Password!123"), request)
     assert exc.value.status_code == 401
 
-    token = sent[0][1].split("token=", 1)[1]
-    verified = await admin.verify_email(token)
+    verified = await admin.verify_code(admin.VerifyCodeBody(email="hari@example.com", code=sent[0][1]))
     assert verified["verified"] is True
     logged_in = await admin.login(admin.LoginBody(identifier="hari@example.com", password="Password!123"), request)
     assert logged_in["user"]["email"] == "hari@example.com"
 
     with pytest.raises(HTTPException) as exc:
-        await admin.verify_email(token)
+        await admin.verify_code(admin.VerifyCodeBody(email="hari@example.com", code=sent[0][1]))
     assert exc.value.status_code == 400
 
 
 @pytest.mark.asyncio
 async def test_duplicate_registration_and_expired_pending(setup_db, monkeypatch):
-    async def fake_email(recipient, url):
+    async def fake_email(recipient, code):
         return None
 
     monkeypatch.setattr(admin, "send_verification_email", fake_email)
@@ -99,7 +98,7 @@ async def test_duplicate_registration_and_expired_pending(setup_db, monkeypatch)
         session.add(pending)
         await session.commit()
     with pytest.raises(HTTPException) as exc:
-        await admin.verify_email("expired")
+        await admin.verify_code(admin.VerifyCodeBody(email="expired@example.com", code="0000"))
     assert exc.value.status_code == 400
 
 

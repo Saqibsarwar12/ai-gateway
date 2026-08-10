@@ -75,18 +75,18 @@ export function Button({
 
 // ─── Input / Textarea / Select ──────────────────────────────────────
 export function Input({
-  label, value, onChange, type = 'text', placeholder, required, minLength, maxLength, hint, autoComplete, disabled, className = '', step, min, max,
+  label, value, onChange, type = 'text', placeholder, required, minLength, maxLength, hint, autoComplete, inputMode, disabled, className = '', step, min, max,
 }: {
   label?: string; value: string; onChange: (v: string) => void;
   type?: string; placeholder?: string; required?: boolean; hint?: ReactNode;
-  autoComplete?: string; disabled?: boolean; className?: string; step?: string | number; min?: string | number; max?: string | number; minLength?: number; maxLength?: number;
+  autoComplete?: string; inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode']; disabled?: boolean; className?: string; step?: string | number; min?: string | number; max?: string | number; minLength?: number; maxLength?: number;
 }) {
   return (
     <div className={`field ${className}`}>
       {label && <label className="label">{label}{required && <span style={{ color: 'var(--err)' }}> *</span>}</label>}
       <input
         type={type} value={value} onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder} required={required} autoComplete={autoComplete} disabled={disabled}
+        placeholder={placeholder} required={required} autoComplete={autoComplete} inputMode={inputMode} disabled={disabled}
         className="input"
         step={step} min={min} max={max} minLength={minLength} maxLength={maxLength}
       />

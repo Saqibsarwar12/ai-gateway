@@ -44,6 +44,32 @@ async def migrate_auth_schema() -> None:
         )""")
         await d1_execute("CREATE INDEX IF NOT EXISTS idx_gateway_configs_user ON user_gateway_configs(user_id)")
         await d1_execute("CREATE INDEX IF NOT EXISTS idx_gateway_configs_user_provider ON user_gateway_configs(user_id, provider)")
+        await d1_execute("""CREATE TABLE IF NOT EXISTS verification_tokens (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            token_hash TEXT UNIQUE NOT NULL,
+            expires_at TEXT NOT NULL,
+            used_at TEXT,
+            created_at TEXT NOT NULL
+        )""")
+        await d1_execute("""CREATE TABLE IF NOT EXISTS pending_registrations (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            hashed_password TEXT NOT NULL,
+            token_hash TEXT UNIQUE NOT NULL,
+            expires_at TEXT NOT NULL,
+            code_attempts INTEGER NOT NULL DEFAULT 0,
+            last_attempt_at TEXT,
+            created_at TEXT NOT NULL
+        )""")
+        pending_columns = await d1_fetchall("PRAGMA table_info(pending_registrations)")
+        pending_names = {row.get("name") for row in pending_columns}
+        if "code_attempts" not in pending_names:
+            await d1_execute("ALTER TABLE pending_registrations ADD COLUMN code_attempts INTEGER NOT NULL DEFAULT 0")
+        if "last_attempt_at" not in pending_names:
+            await d1_execute("ALTER TABLE pending_registrations ADD COLUMN last_attempt_at TEXT")
+        await d1_execute("CREATE INDEX IF NOT EXISTS idx_pending_registrations_email ON pending_registrations(email)")
         await d1_execute("CREATE TABLE IF NOT EXISTS auth_migrations (migration_key TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
         return
 
@@ -58,6 +84,26 @@ async def migrate_auth_schema() -> None:
             await connection.execute(text("ALTER TABLE users ADD COLUMN username VARCHAR(64)"))
         await connection.execute(text("UPDATE users SET username = lower(name) WHERE username IS NULL OR username = ''"))
         await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)"))
+        await connection.execute(text("""CREATE TABLE IF NOT EXISTS verification_tokens (
+            id VARCHAR(255) PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            token_hash VARCHAR(255) UNIQUE NOT NULL,
+            expires_at DATETIME NOT NULL,
+            used_at DATETIME,
+            created_at DATETIME NOT NULL
+        )"""))
+        await connection.execute(text("""CREATE TABLE IF NOT EXISTS pending_registrations (
+            id VARCHAR(255) PRIMARY KEY,
+            name VARCHAR(64) NOT NULL,
+            email VARCHAR(320) UNIQUE NOT NULL,
+            hashed_password TEXT NOT NULL,
+            token_hash VARCHAR(255) UNIQUE NOT NULL,
+            expires_at DATETIME NOT NULL,
+            code_attempts INTEGER NOT NULL DEFAULT 0,
+            last_attempt_at DATETIME,
+            created_at DATETIME NOT NULL
+        )"""))
+        await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_pending_registrations_email ON pending_registrations(email)"))
         await connection.execute(text("""CREATE TABLE IF NOT EXISTS user_gateway_configs (
             id VARCHAR(255) PRIMARY KEY,
             user_id VARCHAR(255) NOT NULL,

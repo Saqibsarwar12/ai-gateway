@@ -1,132 +1,78 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { FormEvent, Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Spinner } from '@/components/UI';
-
-type Status = 'loading' | 'verifying' | 'success' | 'error';
+import { Button, Input, Spinner } from '@/components/UI';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
-const VERIFY_API_PATH = '/admin/auth/verify-email';
+
+type Status = 'form' | 'verifying' | 'success' | 'error';
 
 function VerifyEmailContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const token = searchParams.get('token');
-  const [status, setStatus] = useState<Status>('loading');
+  const queryEmail = searchParams.get('email') || '';
+  const queryToken = searchParams.get('token') || '';
+  const [email, setEmail] = useState(queryEmail);
+  const [code, setCode] = useState('');
+  const [status, setStatus] = useState<Status>('form');
   const [message, setMessage] = useState('');
 
   useEffect(() => {
-    if (!token) {
-      setStatus('error');
-      setMessage('Missing verification token.');
-      return;
-    }
+    if (queryEmail) setEmail(queryEmail);
+    if (queryToken) setMessage('This is an older verification link. New registrations use the 4-digit code sent by email.');
+  }, [queryEmail, queryToken]);
 
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setMessage('');
     setStatus('verifying');
-    let cancelled = false;
-
-    async function verify() {
-      try {
-        const verifyUrl = `${API_BASE}${VERIFY_API_PATH}?token=${encodeURIComponent(token!)}`;
-        const res = await fetch(
-          verifyUrl,
-          { method: 'GET' }
-        );
-        const body = await res.json().catch(() => ({}));
-
-        if (!res.ok) {
-          throw new Error(body.detail || 'Verification failed');
-        }
-
-        if (!cancelled) {
-          setStatus('success');
-          setMessage(body.message || 'Email verified. Your account is now active.');
-
-          if (body.email) {
-            sessionStorage.setItem('verified_email', body.email);
-          }
-          if (body.access_token && body.user) {
-            localStorage.setItem('ai_gateway_token', body.access_token);
-            localStorage.setItem('ai_gateway_user', JSON.stringify(body.user));
-          }
-
-          window.setTimeout(() => {
-            if (!cancelled) window.location.assign('/admin');
-          }, 1600);
-        }
-      } catch (err: any) {
-        if (!cancelled) {
-          setStatus('error');
-          setMessage(err.message || 'Invalid or expired verification link.');
-        }
-      }
+    try {
+      const res = await fetch(`${API_BASE}/admin/auth/verify-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ email: email.trim(), code: code.trim() }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.detail || 'Verification failed');
+      localStorage.setItem('ai_gateway_token', body.access_token);
+      localStorage.setItem('ai_gateway_user', JSON.stringify(body.user));
+      setStatus('success');
+      setMessage(body.message || 'Email verified. Your account is now active.');
+      window.setTimeout(() => router.replace('/admin'), 1200);
+    } catch (err: any) {
+      setStatus('error');
+      setMessage(err.message || 'Verification failed');
     }
-
-    verify();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0908] text-[#f5f1e8] flex items-center justify-center p-6">
       <div className="w-full max-w-md border border-[#1c1c1a] bg-[#13110f] p-8 rounded-sm">
         <div className="font-mono text-[10px] text-[#d4a574] tracking-[0.4em] uppercase">Email verification</div>
-
-        {status === 'loading' && (
+        {status === 'success' ? (
           <>
-            <h1 className="mt-3 font-serif text-3xl italic text-[#8a8275]">Loading...</h1>
-            <p className="mt-3 text-sm text-[#6b6358] leading-relaxed">Please wait.</p>
-          </>
-        )}
-
-        {status === 'verifying' && (
-          <>
-            <h1 className="mt-3 font-serif text-3xl italic">Verifying...</h1>
-            <p className="mt-3 text-sm text-[#8a8275] leading-relaxed">Checking your verification link. Do not close this page.</p>
-            <div className="mt-4 flex items-center gap-2">
-              <Spinner size={12} />
-              <span className="text-xs font-mono text-[#6b6358]">Activating your account</span>
-            </div>
-          </>
-        )}
-
-        {status === 'success' && (
-          <>
-            <div className="mt-2">
-              <div className="text-[#74d4a5] text-4xl">✓</div>
-            </div>
+            <div className="mt-5 text-[#74d4a5] text-5xl">✓</div>
             <h1 className="mt-3 font-serif text-3xl italic">You're verified.</h1>
             <p className="mt-3 text-sm text-[#8a8275] leading-relaxed">{message}</p>
-            <p className="mt-2 text-xs text-[#6b6358] leading-relaxed">Redirecting you to sign in...</p>
-            <div className="mt-4 flex items-center gap-2">
-              <Spinner size={12} />
-              <span className="text-xs font-mono text-[#6b6358]">Redirecting...</span>
-            </div>
+            <p className="mt-3 text-xs text-[#6b6358]">Signing you in and opening your dashboard…</p>
           </>
-        )}
-
-        {status === 'error' && (
+        ) : (
           <>
-            <div className="mt-2">
-              <div className="text-red-400 text-4xl">✗</div>
-            </div>
-            <h1 className="mt-3 font-serif text-3xl italic">Link invalid or expired.</h1>
-            <p className="mt-3 text-sm text-[#8a8275] leading-relaxed">{message}</p>
-            <div className="mt-6 flex flex-col gap-3">
-              <Link
-                href="/signup"
-                className="font-mono text-xs text-[#d4a574] uppercase tracking-wider hover:text-[#c89960]"
-              >
-                Register again →
-              </Link>
-              <Link
-                href="/login"
-                className="font-mono text-xs text-[#6b6358] uppercase tracking-wider hover:text-[#8a8275]"
-              >
-                Go to sign in →
-              </Link>
+            <h1 className="mt-3 font-serif text-3xl italic">Enter your code.</h1>
+            <p className="mt-3 text-sm text-[#8a8275] leading-relaxed">We emailed a 4-digit code to activate your account. The code expires in 15 minutes.</p>
+            <form onSubmit={submit} className="mt-6 flex flex-col gap-4">
+              <Input label="Email" type="email" value={email} onChange={setEmail} required autoComplete="email" />
+              <Input label="4-digit verification code" type="text" value={code} onChange={(value) => setCode(value.replace(/\D/g, '').slice(0, 4))} required minLength={4} maxLength={4} inputMode="numeric" autoComplete="one-time-code" placeholder="0000" />
+              {message && <div className={`text-sm border rounded px-3 py-2 ${status === 'error' ? 'text-red-400 bg-red-400/10 border-red-400/20' : 'text-[#d4a574] border-[#d4a574]/20 bg-[#d4a574]/10'}`}>{message}</div>}
+              <Button type="submit" disabled={status === 'verifying' || code.length !== 4} className="w-full">
+                {status === 'verifying' ? <><Spinner size={12} /> Verifying...</> : 'Verify email'}
+              </Button>
+            </form>
+            <div className="mt-6 pt-4 border-t border-[#1c1c1a] flex justify-between">
+              <Link href="/signup" className="font-mono text-xs text-[#8a8275] uppercase tracking-wider">Register again →</Link>
+              <Link href="/login" className="font-mono text-xs text-[#8a8275] uppercase tracking-wider">Sign in →</Link>
             </div>
           </>
         )}
@@ -134,6 +80,7 @@ function VerifyEmailContent() {
     </div>
   );
 }
+
 
 export default function VerifyEmailPage() {
   return (

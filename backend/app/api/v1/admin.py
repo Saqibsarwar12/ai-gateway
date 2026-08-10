@@ -248,26 +248,27 @@ async def register(body: RegisterBody, request: Request):
         hashed_password = hash_password(body.password)
         hash_ms = round((time.perf_counter() - hash_started) * 1000, 2)
         now = datetime.utcnow()
-        raw_token = secrets.token_urlsafe(48)
+        raw_code = f"{secrets.randbelow(10000):04d}"
         pending = PendingRegistration(
             id=shortuuid.uuid(),
             name=name,
             email=email,
             hashed_password=hashed_password,
-            token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
-            expires_at=now + timedelta(hours=settings.VERIFICATION_TOKEN_HOURS),
+            token_hash=hashlib.sha256(raw_code.encode()).hexdigest(),
+            expires_at=now + timedelta(minutes=settings.VERIFICATION_CODE_MINUTES),
+            code_attempts=0,
             created_at=now,
         )
         if pending_row:
             await session.delete(pending_row)
+            await session.flush()
         session.add(pending)
         db_started = time.perf_counter()
         await session.commit()
         db_write_ms = round((time.perf_counter() - db_started) * 1000, 2)
-        verification_url = f"{settings.APP_BASE_URL}/verify-email?token={raw_token}"
         email_started = time.perf_counter()
         try:
-            await send_verification_email(email, verification_url)
+            await send_verification_email(email, raw_code)
         except EmailDeliveryError as exc:
             await session.delete(pending)
             await session.commit()
@@ -277,6 +278,67 @@ async def register(body: RegisterBody, request: Request):
         total_ms = round((time.perf_counter() - started) * 1000, 2)
         print(f"auth.register timing lookup_ms={lookup_ms} hash_ms={hash_ms} db_write_ms={db_write_ms} email_ms={email_ms} total_ms={total_ms} result=success")
         return {"status": "verification_required", "email": email, "message": "Check your email to activate your account."}
+
+class VerifyCodeBody(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=4, max_length=4, pattern=r"^\d{4}$")
+
+
+@router.post("/auth/verify-code")
+async def verify_code(body: VerifyCodeBody):
+    email = body.email.strip().lower()
+    code_hash = hashlib.sha256(body.code.encode()).hexdigest()
+    now = datetime.utcnow()
+    async with async_session_maker() as session:
+        result = await session.execute(select(PendingRegistration).where(PendingRegistration.email == email))
+        pending = result.scalar_one_or_none()
+        if not pending:
+            raise HTTPException(status_code=400, detail="No pending verification found. Register again.")
+        if pending.expires_at < now:
+            await session.delete(pending)
+            await session.commit()
+            raise HTTPException(status_code=400, detail="Verification code expired. Register again.")
+        if pending.code_attempts >= settings.VERIFICATION_CODE_MAX_ATTEMPTS:
+            await session.delete(pending)
+            await session.commit()
+            raise HTTPException(status_code=429, detail="Too many incorrect codes. Register again.")
+        if not secrets.compare_digest(code_hash, pending.token_hash):
+            pending.code_attempts += 1
+            pending.last_attempt_at = now
+            await session.commit()
+            raise HTTPException(status_code=400, detail="Incorrect verification code.")
+        existing_email = await session.execute(select(User).where(User.email == email))
+        if existing_email.scalar_one_or_none():
+            await session.delete(pending)
+            await session.commit()
+            raise HTTPException(status_code=409, detail="Email already registered")
+        user = User(
+            id=shortuuid.uuid(),
+            name=pending.name,
+            username=pending.name,
+            email=pending.email,
+            hashed_password=pending.hashed_password,
+            role="user",
+            tier="v1",
+            api_key=create_api_key(),
+            credits=100,
+            is_active=True,
+            email_verified_at=now,
+            created_at=now,
+        )
+        session.add(user)
+        await session.delete(pending)
+        await session.commit()
+        token = create_access_token({"sub": user.id, "email": user.email, "role": user.role})
+    return {
+        "verified": True,
+        "message": "Email verified. Your account is now active.",
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in_hours": ACCESS_TOKEN_EXPIRE_HOURS,
+        "user": {"id": user.id, "email": user.email, "name": user.name, "role": user.role, "tier": user.tier, "credits": user.credits, "is_active": user.is_active},
+    }
+
 
 @router.get("/auth/verify-email")
 async def verify_email(token: str):

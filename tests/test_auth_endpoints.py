@@ -11,24 +11,22 @@ os.environ.update({
     'ADMIN_EMAIL': 'admin@example.com',
     'ADMIN_PASSWORD': 'AdminPass!123',
     'SECRET_KEY': 'test-secret',
-    'RESEND_API_KEY': '',
-    'SMTP_HOST': '',
 })
 import sys
 sys.path.insert(0, str(Path(__file__).parents[1] / 'backend'))
 from app.db.session import engine, async_session_maker
-from app.db.models import Base, User, VerificationToken
+from app.db.models import Base, User, PendingRegistration
 from app.core.auth import hash_password
 from app.api.v1 import admin
-from app.api.v1.admin import LoginBody, RegisterBody, login, register, verify_email
+from app.api.v1.admin import LoginBody, RegisterBody, login, register, verify_code, VerifyCodeBody
 from fastapi import HTTPException
 from starlette.requests import Request
 from sqlalchemy import select
 
 captured=[]
-async def fake_email(recipient, url): captured.append((recipient,url))
-admin.settings.RESEND_API_KEY='configured-test-key'
-admin.settings.EMAIL_FROM='Saki Gateway <noreply@example.com>'
+async def fake_email(recipient, code): captured.append((recipient, code))
+admin.settings.BREVO_API_KEY='configured-test-key'
+admin.settings.EMAIL_FROM='noreply@example.com'
 admin.send_verification_email=fake_email
 
 def req(ip='127.0.0.1'):
@@ -41,7 +39,7 @@ async def main():
         await session.commit()
     result=await login(LoginBody(identifier='admin@example.com',password='AdminPass!123'),req('1.1.1.1'))
     assert result['user']['role']=='admin' and result['access_token']
-    async def failing_email(recipient, url):
+    async def failing_email(recipient, code):
         raise admin.EmailDeliveryError('not configured')
     admin.send_verification_email=failing_email
     try:
@@ -50,29 +48,28 @@ async def main():
         assert e.status_code==503
     else: raise AssertionError('unconfigured sender must fail closed')
     admin.send_verification_email=fake_email
-    os.environ['RESEND_API_KEY']='test-key'; admin.settings.RESEND_API_KEY='test-key'; admin.settings.EMAIL_FROM='Saki Gateway <noreply@example.com>'
+    admin.settings.BREVO_API_KEY='test-key'; admin.settings.EMAIL_FROM='noreply@example.com'
     out=await register(RegisterBody(name='New User',email='new@example.com',password='NewPass!123'),req('3.3.3.3'))
     assert out['status']=='verification_required' and captured
     try: await login(LoginBody(identifier='new@example.com',password='NewPass!123'),req('3.3.3.3'))
     except HTTPException as e: assert e.status_code == 401
     else: raise AssertionError('unverified login must fail')
-    token=captured[-1][1].split('token=',1)[1]
-    verified=await verify_email(token)
+    verified=await verify_code(VerifyCodeBody(email='new@example.com',code=captured[-1][1]))
     assert verified['verified'] is True
     logged=await login(LoginBody(identifier='new@example.com',password='NewPass!123'),req('3.3.3.3'))
     assert logged['user']['email']=='new@example.com'
-    try: await verify_email(token)
+    try: await verify_code(VerifyCodeBody(email='new@example.com', code=captured[-1][1]))
     except HTTPException as e: assert e.status_code==400
-    else: raise AssertionError('token reuse must fail')
+    else: raise AssertionError('code reuse must fail')
     try: await register(RegisterBody(name='Another',email='new@example.com',password='NewPass!123'),req('4.4.4.4'))
     except HTTPException as e: assert e.status_code==409
     else: raise AssertionError('duplicate registration must fail')
-    expired=VerificationToken(id='expired',user_id='admin-001',token_hash=__import__('hashlib').sha256(b'expired').hexdigest(),expires_at=__import__('datetime').datetime.utcnow()-__import__('datetime').timedelta(minutes=1))
-    async with async_session_maker() as session: session.add(expired); await session.commit()
-    try: await verify_email('expired')
+    async with async_session_maker() as session:
+        expired=PendingRegistration(id='expired',name='expired',email='expired@example.com',hashed_password=hash_password('NewPass!123'),token_hash='expired-hash',expires_at=__import__('datetime').datetime.utcnow()-__import__('datetime').timedelta(minutes=1),created_at=__import__('datetime').datetime.utcnow())
+        session.add(expired); await session.commit()
+    try: await verify_code(VerifyCodeBody(email='expired@example.com', code='0000'))
     except HTTPException as e: assert e.status_code==400 and 'expired' in str(e.detail).lower()
-    else: raise AssertionError('expired token must fail')
-    # Failed delivery must not leave a partially created account.
+    else: raise AssertionError('expired code must fail')
     admin.send_verification_email=failing_email
     try: await register(RegisterBody(name='Delivery Fail',email='fail@example.com',password='NewPass!123'),req('5.5.5.5'))
     except HTTPException as e: assert e.status_code==503

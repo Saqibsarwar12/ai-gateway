@@ -110,6 +110,8 @@ class PendingRegistration(Base):
     hashed_password = Column(String, nullable=False)
     token_hash = Column(String, unique=True, nullable=False)
     expires_at = Column(DateTime, nullable=False)
+    code_attempts = Column(Integer, default=0, nullable=False)
+    last_attempt_at = Column(DateTime)
     created_at = Column(DateTime, nullable=False)
 
 

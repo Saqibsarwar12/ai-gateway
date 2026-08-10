@@ -31,16 +31,17 @@ class FakeClient:
         assert url == "https://api.brevo.com/v3/smtp/email"
         assert headers["api-key"] == "test-key"
         assert "sender" in json and "to" in json and "htmlContent" in json
+        assert json["textContent"].find("1234") >= 0
         self.payload = json
         return self.response
 
 async def main():
     old = email.httpx.AsyncClient
     email.httpx.AsyncClient = lambda **kwargs: FakeClient(FakeResponse(payload={"messageId": "<test>"}))
-    await email.send_verification_email("user@example.com", "https://example.com/verify?token=x")
+    await email.send_verification_email("user@example.com", "1234")
     email.httpx.AsyncClient = lambda **kwargs: FakeClient(FakeResponse(status_code=401, payload={"message": "Key not found"}))
     try:
-        await email.send_verification_email("user@example.com", "https://example.com/verify?token=x")
+        await email.send_verification_email("user@example.com", "1234")
     except email.EmailDeliveryError as exc:
         assert "Key not found" in str(exc)
     else:
