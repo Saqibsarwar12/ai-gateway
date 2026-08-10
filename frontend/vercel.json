@@ -4,6 +4,7 @@
   "installCommand": "npm install",
   "rewrites": [
     { "source": "/api-proxy/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/:path*" },
+    { "source": "/admin/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/admin/:path*" },
     { "source": "/v1/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/v1/:path*" },
     { "source": "/v2/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/v2/:path*" },
     { "source": "/v3/:path*", "destination": "https://ai-gateway-7dkh.onrender.com/v3/:path*" },
