@@ -75,6 +75,9 @@ async def lifespan(app: FastAPI):
             else:
                 admin_user.username = admin_user.username or "admin"
                 admin_user.email_verified_at = admin_user.email_verified_at or datetime.utcnow()
+                if os.getenv("ADMIN_PASSWORD_ROTATE_ON_STARTUP", "false").lower() == "true" and settings.ADMIN_PASSWORD:
+                    admin_user.hashed_password = hash_password(settings.ADMIN_PASSWORD)
+                    print(f"Admin password updated for {settings.ADMIN_EMAIL}")
                 await session.commit()
                 print(f"Admin preserved: {settings.ADMIN_EMAIL}")
     except Exception as e:
