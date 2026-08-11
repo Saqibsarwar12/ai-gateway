@@ -44,6 +44,40 @@ async def migrate_auth_schema() -> None:
         )""")
         await d1_execute("CREATE INDEX IF NOT EXISTS idx_gateway_configs_user ON user_gateway_configs(user_id)")
         await d1_execute("CREATE INDEX IF NOT EXISTS idx_gateway_configs_user_provider ON user_gateway_configs(user_id, provider)")
+        await d1_execute("""CREATE TABLE IF NOT EXISTS nvidia_smart_configs (
+            id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL DEFAULT 'NVIDIA Smart',
+            public_model_id TEXT NOT NULL UNIQUE DEFAULT 'nvidia-smart',
+            base_url TEXT NOT NULL DEFAULT 'https://integrate.api.nvidia.com/v1',
+            enabled INTEGER DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        await d1_execute("""CREATE TABLE IF NOT EXISTS nvidia_smart_accounts (
+            id TEXT PRIMARY KEY,
+            config_id TEXT NOT NULL,
+            label TEXT NOT NULL,
+            encrypted_api_key TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            enabled INTEGER DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'healthy',
+            cooldown_until TEXT,
+            consecutive_failures INTEGER DEFAULT 0,
+            success_count INTEGER DEFAULT 0,
+            avg_latency_ms REAL DEFAULT 0,
+            last_status_code INTEGER,
+            last_error_code TEXT,
+            last_error_at TEXT,
+            last_used_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        await d1_execute("CREATE INDEX IF NOT EXISTS idx_nvidia_smart_accounts_config ON nvidia_smart_accounts(config_id)")
+        await d1_execute("CREATE INDEX IF NOT EXISTS idx_nvidia_smart_accounts_status ON nvidia_smart_accounts(config_id, status)")
+        nvidia_columns = await d1_fetchall("PRAGMA table_info(nvidia_smart_accounts)")
+        nvidia_names = {row.get("name") for row in nvidia_columns}
+        if "avg_latency_ms" not in nvidia_names:
+            await d1_execute("ALTER TABLE nvidia_smart_accounts ADD COLUMN avg_latency_ms REAL DEFAULT 0")
         await d1_execute("""CREATE TABLE IF NOT EXISTS verification_tokens (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
@@ -118,6 +152,40 @@ async def migrate_auth_schema() -> None:
         )"""))
         await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_gateway_configs_user ON user_gateway_configs(user_id)"))
         await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_gateway_configs_user_provider ON user_gateway_configs(user_id, provider)"))
+        await connection.execute(text("""CREATE TABLE IF NOT EXISTS nvidia_smart_configs (
+            id VARCHAR(255) PRIMARY KEY,
+            display_name VARCHAR(255) NOT NULL DEFAULT 'NVIDIA Smart',
+            public_model_id VARCHAR(255) NOT NULL UNIQUE DEFAULT 'nvidia-smart',
+            base_url VARCHAR(500) NOT NULL DEFAULT 'https://integrate.api.nvidia.com/v1',
+            enabled BOOLEAN DEFAULT 1,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL
+        )"""))
+        await connection.execute(text("""CREATE TABLE IF NOT EXISTS nvidia_smart_accounts (
+            id VARCHAR(255) PRIMARY KEY,
+            config_id VARCHAR(255) NOT NULL,
+            label VARCHAR(255) NOT NULL,
+            encrypted_api_key TEXT NOT NULL,
+            model_id VARCHAR(255) NOT NULL,
+            enabled BOOLEAN DEFAULT 1,
+            status VARCHAR(50) NOT NULL DEFAULT 'healthy',
+            cooldown_until DATETIME,
+            consecutive_failures INTEGER DEFAULT 0,
+            success_count INTEGER DEFAULT 0,
+            avg_latency_ms FLOAT DEFAULT 0,
+            last_status_code INTEGER,
+            last_error_code VARCHAR(128),
+            last_error_at DATETIME,
+            last_used_at DATETIME,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL
+        )"""))
+        await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_nvidia_smart_accounts_config ON nvidia_smart_accounts(config_id)"))
+        await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_nvidia_smart_accounts_status ON nvidia_smart_accounts(config_id, status)"))
+        nvidia_columns = await connection.execute(text("PRAGMA table_info(nvidia_smart_accounts)"))
+        nvidia_names = {row[1] for row in nvidia_columns.fetchall()}
+        if "avg_latency_ms" not in nvidia_names:
+            await connection.execute(text("ALTER TABLE nvidia_smart_accounts ADD COLUMN avg_latency_ms FLOAT DEFAULT 0"))
         await connection.execute(text("CREATE TABLE IF NOT EXISTS auth_migrations (migration_key VARCHAR(255) PRIMARY KEY, applied_at DATETIME NOT NULL)"))
 
 

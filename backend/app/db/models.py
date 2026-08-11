@@ -196,3 +196,43 @@ class UserGatewayConfig(Base):
         Index("idx_gateway_configs_user", "user_id"),
         Index("idx_gateway_configs_user_provider", "user_id", "provider"),
     )
+
+
+class NvidiaSmartConfig(Base):
+    __tablename__ = "nvidia_smart_configs"
+
+    id = Column(String, primary_key=True)
+    display_name = Column(String, nullable=False, default="NVIDIA Smart")
+    public_model_id = Column(String, nullable=False, unique=True, default="nvidia-smart")
+    base_url = Column(String, nullable=False, default="https://integrate.api.nvidia.com/v1")
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class NvidiaSmartAccount(Base):
+    __tablename__ = "nvidia_smart_accounts"
+
+    id = Column(String, primary_key=True)
+    config_id = Column(String, nullable=False)
+    label = Column(String, nullable=False)
+    encrypted_api_key = Column(Text, nullable=False)
+    model_id = Column(String, nullable=False)
+    enabled = Column(Boolean, default=True)
+    status = Column(String, nullable=False, default="healthy")
+    cooldown_until = Column(DateTime)
+    consecutive_failures = Column(Integer, default=0)
+    success_count = Column(Integer, default=0)
+    failure_count = Column(Integer, default=0)
+    avg_latency_ms = Column(Float, default=0.0)
+    last_status_code = Column(Integer)
+    last_error_code = Column(String)
+    last_error_at = Column(DateTime)
+    last_used_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_nvidia_smart_accounts_config", "config_id"),
+        Index("idx_nvidia_smart_accounts_status", "config_id", "status"),
+    )

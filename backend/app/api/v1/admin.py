@@ -31,7 +31,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from sqlalchemy import select, func
 from app.db.session import async_session_maker
-from app.db.models import Provider, RoutingRule, User, Model, RequestLog, UsageStats, APIKey, VerificationToken, PendingRegistration, UserGatewayConfig
+from app.db.models import Provider, RoutingRule, User, Model, RequestLog, UsageStats, APIKey, VerificationToken, PendingRegistration, UserGatewayConfig, NvidiaSmartConfig, NvidiaSmartAccount
 from app.models.schemas import (
     ProviderCreate, ProviderUpdate, ProviderResponse,
     RoutingRuleCreate, RoutingRuleUpdate, RoutingRuleResponse,

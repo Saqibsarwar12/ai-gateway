@@ -146,6 +146,9 @@ def make_openai_router(version: str) -> APIRouter:
         log_id = shortuuid.uuid()
 
         try:
+            from app.services.nvidia_smart import get_snapshot
+            smart_config, smart_accounts = await get_snapshot()
+
             async with async_session_maker() as session:
                 result = await session.execute(
                     select(RoutingRule)
@@ -161,16 +164,13 @@ def make_openai_router(version: str) -> APIRouter:
                 )
                 providers = result2.scalars().all()
 
-                # Model table is the source of truth for model registry
                 result3 = await session.execute(
                     select(Model).where(Model.enabled == True, Model.is_active == True)
                 )
                 model_entries = result3.scalars().all()
                 provider_model_map = {}
                 for m in model_entries:
-                    provider_model_map.setdefault(m.provider_id, []).append(
-                        m.model_id or m.id
-                    )
+                    provider_model_map.setdefault(m.provider_id, []).append(m.model_id or m.id)
 
                 provider_data = [
                     {
@@ -185,18 +185,23 @@ def make_openai_router(version: str) -> APIRouter:
                     for p in providers
                 ]
 
-            strategy = rule.strategy if rule else "fallback"
-            engine = RoutingEngine(provider_data, strategy)
-
-            messages = [
-                m.model_dump() if hasattr(m, "model_dump") else m
-                for m in req.messages
-            ]
-            result = await engine.chat(
-                req.model, messages,
-                temperature=req.temperature,
-                max_tokens=req.max_tokens,
-            )
+            if smart_config and smart_config.public_model_id == req.model:
+                from app.routing.nvidia_smart import NvidiaSmartRouter
+                smart_router = NvidiaSmartRouter(smart_config, smart_accounts, async_session_maker)
+                result = await smart_router.chat(
+                    req.model,
+                    [m.model_dump() if hasattr(m, "model_dump") else m for m in req.messages],
+                    temperature=req.temperature,
+                    max_tokens=req.max_tokens,
+                    top_p=req.top_p,
+                    stop=req.stop,
+                )
+                engine = None
+            else:
+                strategy = rule.strategy if rule else "fallback"
+                engine = RoutingEngine(provider_data, strategy)
+                messages = [m.model_dump() if hasattr(m, "model_dump") else m for m in req.messages]
+                result = await engine.chat(req.model, messages, temperature=req.temperature, max_tokens=req.max_tokens)
 
             latency_ms = int((time.time() - start) * 1000)
 
@@ -204,7 +209,7 @@ def make_openai_router(version: str) -> APIRouter:
                 log = RequestLog(
                     id=log_id,
                     user_id=actor["id"],
-                    provider=engine.last_provider,
+                    provider=("nvidia-smart" if smart_config else engine.last_provider),
                     model=req.model,
                     input_tokens=result.get("usage", {}).get("prompt_tokens", 0),
                     output_tokens=result.get("usage", {}).get("completion_tokens", 0),
@@ -265,8 +270,10 @@ def make_openai_router(version: str) -> APIRouter:
 
         user_tier_index = _tier_index(user_tier)
 
+        from app.services.nvidia_smart import get_snapshot
+        smart_config, _ = await get_snapshot()
+
         async with async_session_maker() as session:
-            # Source of truth: Model table (populated by admin panel)
             result = await session.execute(
                 select(Model).where(Model.enabled == True, Model.is_active == True)
             )
@@ -294,7 +301,6 @@ def make_openai_router(version: str) -> APIRouter:
                     "root": m.provider_id or "unknown",
                 })
 
-        # Models from Provider.models JSON column (backward compat)
         for p in providers:
             for m in (p.models or []):
                 if m not in seen:
@@ -306,6 +312,15 @@ def make_openai_router(version: str) -> APIRouter:
                         "owned_by": p.id,
                         "root": p.id,
                     })
+
+        if smart_config and smart_config.public_model_id not in seen:
+            models.append({
+                "id": smart_config.public_model_id,
+                "object": "model",
+                "created": 1700000000,
+                "owned_by": smart_config.display_name,
+                "root": smart_config.public_model_id,
+            })
 
         return {"object": "list", "data": models}
 

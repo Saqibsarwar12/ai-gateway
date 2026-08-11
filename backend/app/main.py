@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.core.config import settings
 from app.api.v1 import admin
+from app.api.v1.nvidia_smart import router as nvidia_smart_admin_router
 from app.api.personal_gateway import router as personal_gateway_router
 from app.api.gateway import make_openai_router
 from app.db.migrations import migrate_auth_schema, cleanup_legacy_users
@@ -113,6 +114,7 @@ app.include_router(make_openai_router("v1"), prefix="/v1", tags=["AI Gateway v1"
 app.include_router(make_openai_router("v2"), prefix="/v2", tags=["AI Gateway v2"])
 app.include_router(make_openai_router("v3"), prefix="/v3", tags=["AI Gateway v3"])
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
+app.include_router(nvidia_smart_admin_router)
 app.include_router(personal_gateway_router, prefix="/{username}/v1", tags=["Personal Gateway"])
 
 

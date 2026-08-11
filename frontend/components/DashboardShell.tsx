@@ -10,6 +10,7 @@ const NAV: { href: string; label: string; glyph: string; adminOnly?: boolean }[]
   { href: '/admin/keys', label: 'My API Keys', glyph: '❖' },
   { href: '/admin/gateway', label: 'Personal Gateway', glyph: '↗' },
   { href: '/admin/providers', label: 'Providers', glyph: '◇', adminOnly: true },
+  { href: '/admin/nvidia-smart', label: 'NVIDIA Smart', glyph: 'N', adminOnly: true },
   { href: '/admin/routing', label: 'Routing', glyph: '↯', adminOnly: true },
   { href: '/admin/models', label: 'Models', glyph: '◎' },
   { href: '/admin/playground', label: 'Playground', glyph: '✦' },
