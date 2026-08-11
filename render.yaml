@@ -45,5 +45,3 @@ services:
     sync: false
   - key: PERSONAL_GATEWAY_ENCRYPTION_KEY
     sync: false
-  - key: ADMIN_PASSWORD_ROTATE_ON_STARTUP
-    value: 'true'
