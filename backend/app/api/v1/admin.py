@@ -210,6 +210,17 @@ async def login(body: LoginBody, request: Request):
         valid_password = bool(user and user.hashed_password and verify_password(body.password, user.hashed_password))
         hash_ms = round((time.perf_counter() - hash_started) * 1000, 2)
         if not user or not valid_password:
+            # Check if this email has a pending registration awaiting verification
+            pending_result = await session.execute(
+                select(PendingRegistration).where(PendingRegistration.email == lookup_identifier)
+            )
+            pending = pending_result.scalar_one_or_none()
+            if pending and verify_password(body.password, pending.hashed_password):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Account not verified. Check your email for a verification code, or sign up again.",
+                    headers={"X-Needs-Verification": "true"},
+                )
             print(f"auth.login timing lookup_ms={lookup_ms} hash_ms={hash_ms} token_ms=0 total_ms={round((time.perf_counter() - started) * 1000, 2)} result=reject")
             raise HTTPException(status_code=401, detail="Invalid credentials")
         if not user.is_active:
@@ -288,15 +299,21 @@ async def register(body: RegisterBody, request: Request):
         if username_conflict.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Username already taken. Choose a different one.")
 
-        # Clean up any expired pending registration for this email first
-        expired_cleanup = await session.execute(
+        # Reject duplicate signups while a pending registration is still valid
+        now = datetime.utcnow()
+        existing_pending = await session.execute(
             select(PendingRegistration).where(
                 PendingRegistration.email == email
             ).limit(1)
         )
-        old_pending = expired_cleanup.scalar_one_or_none()
-        if old_pending:
-            await session.delete(old_pending)
+        pending = existing_pending.scalar_one_or_none()
+        if pending:
+            if pending.expires_at >= now:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A verification email has already been sent. Check your inbox or wait for it to expire.",
+                )
+            await session.delete(pending)
             await session.flush()
 
         lookup_ms = round((time.perf_counter() - lookup_started) * 1000, 2)
@@ -304,8 +321,6 @@ async def register(body: RegisterBody, request: Request):
         hashed_password = hash_password(body.password)
         hash_ms = round((time.perf_counter() - hash_started) * 1000, 2)
 
-        now = datetime.utcnow()
-        # 6-digit code for better security
         raw_code = f"{secrets.randbelow(1000000):06d}"
 
         pending = PendingRegistration(
@@ -436,74 +451,10 @@ async def verify_code(body: VerifyCodeBody):
 
 @router.get("/auth/verify-email")
 async def verify_email(token: str):
-    if not token or len(token) > 256:
-        raise HTTPException(status_code=400, detail="Invalid verification link")
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    now = datetime.utcnow()
-    async with async_session_maker() as session:
-        pending_result = await session.execute(select(PendingRegistration).where(PendingRegistration.token_hash == token_hash))
-        pending = pending_result.scalar_one_or_none()
-        if pending:
-            if pending.expires_at < now:
-                await session.delete(pending)
-                await session.commit()
-                raise HTTPException(status_code=400, detail="Invalid or expired verification link")
-            existing_email = await session.execute(select(User).where(User.email == pending.email))
-            if existing_email.scalar_one_or_none():
-                await session.delete(pending)
-                await session.commit()
-                raise HTTPException(status_code=409, detail="Email already registered")
-            existing_name = await session.execute(select(User).where(User.name == pending.name))
-            if existing_name.scalar_one_or_none():
-                await session.delete(pending)
-                await session.commit()
-                raise HTTPException(status_code=409, detail="Username already taken")
-            user = User(
-                id=shortuuid.uuid(),
-                name=pending.name,
-                username=pending.name,
-                email=pending.email,
-                hashed_password=pending.hashed_password,
-                role="user",
-                tier="v1",
-                api_key=create_api_key(),
-                credits=100,
-                is_active=True,
-                email_verified_at=now,
-                created_at=now,
-            )
-            session.add(user)
-            await session.delete(pending)
-            await session.commit()
-            return {
-                "verified": True,
-                "message": "Email verified. Your account is now active.",
-                "access_token": create_access_token({"sub": user.id, "email": user.email, "role": user.role}),
-                "token_type": "bearer",
-                "expires_in_hours": ACCESS_TOKEN_EXPIRE_HOURS,
-                "user": {"id": user.id, "email": user.email, "name": user.name, "role": user.role, "tier": user.tier, "credits": user.credits, "is_active": user.is_active},
-            }
-
-        result = await session.execute(select(VerificationToken).where(VerificationToken.token_hash == token_hash))
-        verification = result.scalar_one_or_none()
-        if not verification or verification.used_at or verification.expires_at < now:
-            raise HTTPException(status_code=400, detail="Invalid or expired verification link")
-        user_result = await session.execute(select(User).where(User.id == verification.user_id))
-        user = user_result.scalar_one_or_none()
-        if not user:
-            raise HTTPException(status_code=400, detail="Invalid verification link")
-        user.email_verified_at = now
-        user.is_active = True
-        verification.used_at = now
-        await session.commit()
-    return {
-        "verified": True,
-        "message": "Email verified. Your account is now active.",
-        "access_token": create_access_token({"sub": user.id, "email": user.email, "role": user.role}),
-        "token_type": "bearer",
-        "expires_in_hours": ACCESS_TOKEN_EXPIRE_HOURS,
-        "user": {"id": user.id, "email": user.email, "name": user.name, "role": user.role, "tier": user.tier, "credits": user.credits, "is_active": user.is_active},
-    }
+    raise HTTPException(
+        status_code=410,
+        detail="Email verification now uses the 6-digit code sent to your inbox. Enter that code on the verification page.",
+    )
 
 @router.get("/auth/me")
 async def me(payload: dict = Depends(require_user)):

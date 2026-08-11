@@ -1,11 +1,11 @@
 'use client';
 
-import { FormEvent, Suspense, useEffect, useState } from 'react';
+import { FormEvent, Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button, Input, Spinner } from '@/components/UI';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api-proxy';
 
 type Status = 'form' | 'verifying' | 'success' | 'error';
 
@@ -13,16 +13,10 @@ function VerifyEmailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryEmail = searchParams.get('email') || '';
-  const queryToken = searchParams.get('token') || '';
   const [email, setEmail] = useState(queryEmail);
   const [code, setCode] = useState('');
   const [status, setStatus] = useState<Status>('form');
   const [message, setMessage] = useState('');
-
-  useEffect(() => {
-    if (queryEmail) setEmail(queryEmail);
-    if (queryToken) setMessage('This is an older verification link. New registrations use the 4-digit code sent by email.');
-  }, [queryEmail, queryToken]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -58,6 +52,13 @@ function VerifyEmailContent() {
             <p className="mt-3 text-sm text-[#8a8275] leading-relaxed">{message}</p>
             <p className="mt-3 text-xs text-[#6b6358]">Signing you in and opening your dashboard…</p>
           </>
+        ) : status === 'error' ? (
+          <>
+            <div className="mt-5 text-red-400 text-4xl">!</div>
+            <h1 className="mt-3 font-serif text-3xl italic">Verification failed.</h1>
+            <p className="mt-3 text-sm text-red-300 leading-relaxed">{message}</p>
+            <Link href="/signup" className="mt-6 inline-block font-mono text-xs text-[#d4a574] uppercase tracking-wider">Register again →</Link>
+          </>
         ) : (
           <>
             <h1 className="mt-3 font-serif text-3xl italic">Enter your code.</h1>
@@ -76,8 +77,8 @@ function VerifyEmailContent() {
                 autoComplete="one-time-code"
                 placeholder="000000"
               />
-              {message && <div className={`text-sm border rounded px-3 py-2 ${status === 'error' ? 'text-red-400 bg-red-400/10 border-red-400/20' : 'text-[#d4a574] border-[#d4a574]/20 bg-[#d4a574]/10'}`}>{message}</div>}
-              <Button type="submit" disabled={status === 'verifying' || code.length !== 4} className="w-full">
+              {message && <div className="text-sm border rounded px-3 py-2 text-[#d4a574] border-[#d4a574]/20 bg-[#d4a574]/10">{message}</div>}
+              <Button type="submit" disabled={status === 'verifying' || code.length !== 6} className="w-full">
                 {status === 'verifying' ? <><Spinner size={12} /> Verifying...</> : 'Verify email'}
               </Button>
             </form>
