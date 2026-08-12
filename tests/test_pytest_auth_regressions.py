@@ -98,7 +98,7 @@ async def test_duplicate_registration_and_expired_pending(setup_db, monkeypatch)
         session.add(pending)
         await session.commit()
     with pytest.raises(HTTPException) as exc:
-        await admin.verify_code(admin.VerifyCodeBody(email="expired@example.com", code="0000"))
+        await admin.verify_code(admin.VerifyCodeBody(email="expired@example.com", code="000000"))
     assert exc.value.status_code == 400
 
 

@@ -178,9 +178,9 @@ class NvidiaSmartRouter:
             api_key = decrypt_gateway_secret(account.encrypted_api_key)
         except Exception as exc:
             raise NvidiaUpstreamError(500, "credential_unavailable") from exc
+        timeout = kwargs.pop("timeout", 60)
         body = {"model": account.model_id, "messages": messages}
         body.update({key: value for key, value in kwargs.items() if value is not None})
-        timeout = kwargs.pop("timeout", 60)
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(

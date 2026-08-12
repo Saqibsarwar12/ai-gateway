@@ -217,7 +217,7 @@ async def login(body: LoginBody, request: Request):
             pending = pending_result.scalar_one_or_none()
             if pending and verify_password(body.password, pending.hashed_password):
                 raise HTTPException(
-                    status_code=403,
+                    status_code=401,
                     detail="Account not verified. Check your email for a verification code, or sign up again.",
                     headers={"X-Needs-Verification": "true"},
                 )

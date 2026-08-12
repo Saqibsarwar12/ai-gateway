@@ -209,7 +209,7 @@ def make_openai_router(version: str) -> APIRouter:
                 log = RequestLog(
                     id=log_id,
                     user_id=actor["id"],
-                    provider=("nvidia-smart" if smart_config else engine.last_provider),
+                    provider=(req.model if smart_config and smart_config.public_model_id == req.model else engine.last_provider),
                     model=req.model,
                     input_tokens=result.get("usage", {}).get("prompt_tokens", 0),
                     output_tokens=result.get("usage", {}).get("completion_tokens", 0),
