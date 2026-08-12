@@ -51,6 +51,31 @@ async def migrate_auth_schema() -> None:
                 await d1_execute(f'ALTER TABLE models ADD COLUMN "{column}" {definition}')
         await d1_execute("UPDATE models SET model_id = COALESCE(model_id, id) WHERE model_id IS NULL OR model_id = ''")
         await d1_execute("UPDATE models SET is_active = COALESCE(is_active, 1) WHERE is_active IS NULL")
+        provider_columns = await d1_fetchall("PRAGMA table_info(providers)")
+        provider_names = {row.get("name") for row in provider_columns}
+        provider_additions = {
+            "provider_type": "TEXT DEFAULT 'openai'",
+            "api_key": "TEXT",
+            "enabled": "INTEGER DEFAULT 1",
+            "priority": "INTEGER DEFAULT 100",
+            "max_rpm": "INTEGER DEFAULT 1000",
+            "max_tpm": "INTEGER DEFAULT 100000",
+            "current_rpm": "INTEGER DEFAULT 0",
+            "current_tpm": "INTEGER DEFAULT 0",
+            "avg_latency_ms": "REAL DEFAULT 0",
+            "success_rate": "REAL DEFAULT 100",
+            "is_healthy": "INTEGER DEFAULT 1",
+            "requires_proxy": "INTEGER DEFAULT 0",
+            "proxy_url": "TEXT",
+            "models": "TEXT",
+            "extra_config": "TEXT",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        }
+        for column, definition in provider_additions.items():
+            if column not in provider_names:
+                await d1_execute(f'ALTER TABLE providers ADD COLUMN "{column}" {definition}')
+        await d1_execute("UPDATE providers SET provider_type = COALESCE(provider_type, 'openai') WHERE provider_type IS NULL OR provider_type = ''")
         await d1_execute("""CREATE TABLE IF NOT EXISTS user_gateway_configs (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
