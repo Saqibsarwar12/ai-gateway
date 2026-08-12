@@ -1,4 +1,6 @@
 """Idempotent authentication and personal gateway migrations."""
+import asyncio
+
 from sqlalchemy import text
 
 from app.core.config import settings
@@ -195,9 +197,15 @@ async def cleanup_legacy_users() -> dict:
     if USE_D1:
         if await d1_fetchall("SELECT migration_key FROM auth_migrations WHERE migration_key = ?", [migration_key]):
             return {"skipped": True}
-        admin_rows = await d1_fetchall("SELECT id FROM users WHERE lower(email) = lower(?) AND role = 'admin'", [settings.ADMIN_EMAIL])
+        admin_rows = []
+        for attempt in range(10):
+            admin_rows = await d1_fetchall("SELECT id FROM users WHERE lower(email) = lower(?) AND role = 'admin'", [settings.ADMIN_EMAIL])
+            if len(admin_rows) == 1:
+                break
+            if attempt < 9:
+                await asyncio.sleep(1)
         if len(admin_rows) != 1:
-            raise RuntimeError("Expected exactly one configured admin row before cleanup")
+            raise RuntimeError("Expected exactly one configured admin row before cleanup after consistency retries")
         admin_id = admin_rows[0]["id"]
         await d1_execute("DELETE FROM verification_tokens WHERE user_id != ?", [admin_id])
         await d1_execute("DELETE FROM api_keys WHERE user_id != ?", [admin_id])
