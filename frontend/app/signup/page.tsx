@@ -51,7 +51,7 @@ export default function SignupPage() {
         <div className="w-full max-w-md border border-[#1c1c1a] bg-[#13110f] p-8 rounded-sm">
           <div className="font-mono text-[10px] text-[#d4a574] tracking-[0.4em] uppercase">Check your inbox</div>
           <h1 className="mt-3 font-serif text-3xl italic">Verify your email.</h1>
-          <p className="mt-3 text-sm text-[#8a8275] leading-relaxed">We sent a 4-digit verification code to {submittedEmail}. Your account stays inactive until you enter it.</p>
+          <p className="mt-3 text-sm text-[#8a8275] leading-relaxed">We sent a 6-digit verification code to {submittedEmail}. Your account stays inactive until you enter it.</p>
           <Link href="/login" className="mt-6 inline-block font-mono text-xs text-[#d4a574] uppercase tracking-wider">Return to sign in →</Link>
         </div>
       </div>
