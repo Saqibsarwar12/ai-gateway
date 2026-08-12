@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Request
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Header, Request, Response
 from sqlalchemy import select, func
 from app.db.session import async_session_maker
 from app.db.models import Provider, RoutingRule, User, Model, RequestLog, UsageStats, APIKey, VerificationToken, PendingRegistration, UserGatewayConfig, NvidiaSmartConfig, NvidiaSmartAccount
@@ -63,22 +63,28 @@ def _client_ip(request: Request) -> str:
     return (request.client.host if request.client else "") or "unknown"
 
 # ─── Auth dependency (token decoder) ─────────────────────
-async def _decode_bearer(authorization: Optional[str] = Header(None)) -> dict:
-    """Decode the JWT bearer token. Raises 401 if missing/invalid."""
-    if not authorization or not authorization.lower().startswith("bearer "):
+async def _decode_bearer(authorization: Optional[str] = Header(None), session_cookie: Optional[str] = Cookie(None, alias=settings.SESSION_COOKIE_NAME)) -> dict:
+    """Decode a bearer token or the secure session cookie."""
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    elif session_cookie:
+        token = session_cookie.strip()
+    else:
         raise HTTPException(
             status_code=401,
             detail="Missing or invalid authorization header. Provide a Bearer token.",
         )
-    token = authorization.split(" ", 1)[1].strip()
     payload = decode_token(token, settings.SECRET_KEY)
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     return payload
 
-async def require_user(authorization: Optional[str] = Header(None)) -> dict:
+async def require_user(
+    authorization: Optional[str] = Header(None),
+    session_cookie: Optional[str] = Cookie(None, alias=settings.SESSION_COOKIE_NAME),
+) -> dict:
     """Any logged-in user (must be email-verified for non-admins)."""
-    payload = await _decode_bearer(authorization)
+    payload = await _decode_bearer(authorization, session_cookie)
     user_id = payload.get("sub")
     async with async_session_maker() as session:
         result = await session.execute(select(User).where(User.id == user_id))
@@ -90,9 +96,12 @@ async def require_user(authorization: Optional[str] = Header(None)) -> dict:
         await _require_verified_user(user)
     return payload
 
-async def require_admin(authorization: Optional[str] = Header(None)) -> dict:
+async def require_admin(
+    authorization: Optional[str] = Header(None),
+    session_cookie: Optional[str] = Cookie(None, alias=settings.SESSION_COOKIE_NAME),
+) -> dict:
     """Admin role required (admins bypass email verification check)."""
-    payload = await _decode_bearer(authorization)
+    payload = await _decode_bearer(authorization, session_cookie)
     user_id = payload.get("sub")
     async with async_session_maker() as session:
         result = await session.execute(select(User).where(User.id == user_id))
@@ -163,6 +172,19 @@ def _check_registration_rate_limit(ip: str) -> None:
     _login_attempts[f"register:{ip}"] = attempts
 
 
+def _set_session_cookie(response: Optional[Response], token: str) -> None:
+    if response is not None:
+        response.set_cookie(
+            key=settings.SESSION_COOKIE_NAME,
+            value=token,
+            max_age=ACCESS_TOKEN_EXPIRE_HOURS * 3600,
+            httponly=True,
+            secure=True,
+            samesite="none",
+            path="/",
+        )
+
+
 async def _delete_created_registration(session, user_id: str, verification_id: str) -> None:
     verification_result = await session.execute(select(VerificationToken).where(VerificationToken.id == verification_id))
     verification_row = verification_result.scalar_one_or_none()
@@ -181,7 +203,7 @@ class LoginBody(BaseModel):
     password: str
 
 @router.post("/auth/login")
-async def login(body: LoginBody, request: Request):
+async def login(body: LoginBody, request: Request, response: Response = None):
     """Authenticate with email OR username + password.
 
     Returns a 30-day JWT and the user record. Never includes api_key
@@ -235,6 +257,7 @@ async def login(body: LoginBody, request: Request):
         total_ms = round((time.perf_counter() - started) * 1000, 2)
         print(f"auth.login timing lookup_ms={lookup_ms} hash_ms={hash_ms} token_ms={token_ms} total_ms={total_ms} result=success")
         is_admin = user.role == "admin"
+        _set_session_cookie(response, token)
         return {
             "access_token": token,
             "token_type": "bearer",
@@ -322,6 +345,8 @@ async def register(body: RegisterBody, request: Request):
         hash_ms = round((time.perf_counter() - hash_started) * 1000, 2)
 
         raw_code = f"{secrets.randbelow(1000000):06d}"
+        raw_link_token = secrets.token_urlsafe(32)
+        verification_url = f"{settings.FRONTEND_BASE_URL}/verify-email?token={raw_link_token}"
 
         pending = PendingRegistration(
             id=shortuuid.uuid(),
@@ -329,6 +354,10 @@ async def register(body: RegisterBody, request: Request):
             email=email,
             hashed_password=hashed_password,
             token_hash=hashlib.sha256(raw_code.encode()).hexdigest(),
+            verification_link_hash=hashlib.sha256(raw_link_token.encode()).hexdigest(),
+            role="user",
+            tier="v1",
+            credits=100,
             expires_at=now + timedelta(minutes=settings.VERIFICATION_CODE_MINUTES),
             code_attempts=0,
             created_at=now,
@@ -340,7 +369,7 @@ async def register(body: RegisterBody, request: Request):
 
         email_started = time.perf_counter()
         try:
-            await send_verification_email(email, raw_code)
+            await send_verification_email(email, raw_code, verification_url)
         except EmailDeliveryError as exc:
             await session.delete(pending)
             await session.commit()
@@ -363,7 +392,7 @@ class VerifyCodeBody(BaseModel):
 
 
 @router.post("/auth/verify-code")
-async def verify_code(body: VerifyCodeBody):
+async def verify_code(body: VerifyCodeBody, response: Response = None):
     """Verify the 6-digit code sent to the user's email and activate their account."""
     email = body.email.strip().lower()
     code_hash = hashlib.sha256(body.code.encode()).hexdigest()
@@ -418,10 +447,10 @@ async def verify_code(body: VerifyCodeBody):
             username=pending.name,
             email=pending.email,
             hashed_password=pending.hashed_password,
-            role="user",
-            tier="v1",
+            role=pending.role or "user",
+            tier=pending.tier or "v1",
             api_key=create_api_key(),
-            credits=100,
+            credits=pending.credits if pending.credits is not None else 100,
             is_active=True,
             email_verified_at=now,
             created_at=now,
@@ -430,6 +459,7 @@ async def verify_code(body: VerifyCodeBody):
         await session.delete(pending)
         await session.commit()
         token = create_access_token({"sub": user.id, "email": user.email, "role": user.role})
+        _set_session_cookie(response, token)
 
     return {
         "verified": True,
@@ -450,11 +480,72 @@ async def verify_code(body: VerifyCodeBody):
 
 
 @router.get("/auth/verify-email")
-async def verify_email(token: str):
-    raise HTTPException(
-        status_code=410,
-        detail="Email verification now uses the 6-digit code sent to your inbox. Enter that code on the verification page.",
-    )
+async def verify_email(token: str, response: Response = None):
+    if len(token) < 32 or len(token) > 128:
+        raise HTTPException(status_code=400, detail="Invalid verification link")
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    now = datetime.utcnow()
+
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(PendingRegistration).where(PendingRegistration.verification_link_hash == token_hash)
+        )
+        pending = result.scalar_one_or_none()
+        if not pending:
+            raise HTTPException(status_code=400, detail="Invalid or already-used verification link")
+        if pending.expires_at < now:
+            await session.delete(pending)
+            await session.commit()
+            raise HTTPException(status_code=400, detail="Verification link expired. Please sign up again.")
+
+        existing_email = await session.execute(select(User).where(func.lower(User.email) == pending.email.lower()))
+        if existing_email.scalar_one_or_none():
+            await session.delete(pending)
+            await session.commit()
+            raise HTTPException(status_code=409, detail="Email already registered. Sign in instead.")
+
+        user = User(
+            id=shortuuid.uuid(),
+            name=pending.name,
+            username=pending.name,
+            email=pending.email,
+            hashed_password=pending.hashed_password,
+            role=pending.role or "user",
+            tier=pending.tier or "v1",
+            api_key=create_api_key(),
+            credits=pending.credits if pending.credits is not None else 100,
+            is_active=True,
+            email_verified_at=now,
+            created_at=now,
+        )
+        session.add(user)
+        await session.delete(pending)
+        await session.commit()
+        access_token = create_access_token({"sub": user.id, "email": user.email, "role": user.role})
+        _set_session_cookie(response, access_token)
+
+    return {
+        "verified": True,
+        "message": "Email verified. Your account is now active.",
+        "access_token": access_token,
+        "token_type": "bearer",
+        "expires_in_hours": ACCESS_TOKEN_EXPIRE_HOURS,
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "role": user.role,
+            "tier": user.tier,
+            "credits": user.credits,
+            "is_active": user.is_active,
+        },
+    }
+
+@router.post("/auth/logout")
+async def logout(response: Response):
+    response.delete_cookie(settings.SESSION_COOKIE_NAME, path="/")
+    return {"logged_out": True}
+
 
 @router.get("/auth/me")
 async def me(payload: dict = Depends(require_user)):
@@ -775,31 +866,57 @@ async def list_users(_: dict = Depends(require_admin)):
         return [UserResponse.model_validate(u) for u in result.scalars().all()]
 
 
-@router.post("/users", response_model=UserResponse)
+@router.post("/users")
 async def create_user(data: UserCreate, _: dict = Depends(require_admin)):
+    name = normalize_username(data.name.strip())
+    if not valid_username(name) or len(name) < 2:
+        raise HTTPException(status_code=400, detail="Name must start with a letter and contain only letters, numbers, and hyphens")
+    if len(data.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    normalized_email = data.email.strip().lower()
+    if normalized_email == settings.ADMIN_EMAIL.lower():
+        raise HTTPException(status_code=409, detail="This email address belongs to the admin")
+
     async with async_session_maker() as session:
-        normalized_email = data.email.strip().lower()
-        existing = await session.execute(select(User).where(User.email == normalized_email))
+        existing = await session.execute(select(User).where(func.lower(User.email) == normalized_email))
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Email already registered")
-        api_key = create_api_key()
-        u = User(
+        existing_pending = await session.execute(select(PendingRegistration).where(PendingRegistration.email == normalized_email))
+        if existing_pending.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="A verification email has already been sent")
+
+        now = datetime.utcnow()
+        raw_code = f"{secrets.randbelow(1000000):06d}"
+        raw_link_token = secrets.token_urlsafe(32)
+        verification_url = f"{settings.FRONTEND_BASE_URL}/verify-email?token={raw_link_token}"
+        pending = PendingRegistration(
             id=shortuuid.uuid(),
-            name=data.name,
-            username=normalize_username(data.name),
+            name=name,
             email=normalized_email,
             hashed_password=hash_password(data.password),
-            role=data.role,
+            token_hash=hashlib.sha256(raw_code.encode()).hexdigest(),
+            verification_link_hash=hashlib.sha256(raw_link_token.encode()).hexdigest(),
+            role="user",
             tier=data.tier or "v1",
-            api_key=api_key,
             credits=data.credits,
-            is_active=True,
-            email_verified_at=datetime.utcnow(),
-            created_at=datetime.utcnow(),
+            expires_at=now + timedelta(minutes=settings.VERIFICATION_CODE_MINUTES),
+            code_attempts=0,
+            created_at=now,
         )
-        session.add(u)
+        session.add(pending)
         await session.commit()
-        return UserResponse.model_validate(u)
+        try:
+            await send_verification_email(normalized_email, raw_code, verification_url)
+        except EmailDeliveryError as exc:
+            await session.delete(pending)
+            await session.commit()
+            raise HTTPException(status_code=503, detail=f"Verification email could not be sent: {exc}") from exc
+
+    return {
+        "status": "verification_required",
+        "email": normalized_email,
+        "message": "Verification email sent. The account will activate after email verification.",
+    }
 
 
 @router.put("/users/{user_id}", response_model=UserResponse)

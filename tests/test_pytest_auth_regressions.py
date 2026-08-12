@@ -49,7 +49,7 @@ def setup_db():
 async def test_auth_flow_and_verification(setup_db, monkeypatch):
     sent = []
 
-    async def fake_email(recipient, code):
+    async def fake_email(recipient, code, verification_url=None):
         sent.append((recipient, code))
 
     monkeypatch.setattr(admin, "send_verification_email", fake_email)
@@ -77,7 +77,7 @@ async def test_auth_flow_and_verification(setup_db, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_duplicate_registration_and_expired_pending(setup_db, monkeypatch):
-    async def fake_email(recipient, code):
+    async def fake_email(recipient, code, verification_url=None):
         return None
 
     monkeypatch.setattr(admin, "send_verification_email", fake_email)

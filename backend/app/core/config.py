@@ -13,8 +13,9 @@ class Settings:
     USE_SQLITE = os.getenv("USE_SQLITE", "false").lower() == "true"
     ALGORITHM = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30 days
-
+    SESSION_COOKIE_NAME = "saki_gateway_session"
     APP_BASE_URL = os.getenv("APP_BASE_URL", "https://saki-gateway.indevs.in").rstrip("/")
+    FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "https://ai-gateway-frontend.onrender.com").rstrip("/")
     BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
     EMAIL_FROM = os.getenv("EMAIL_FROM", "")
     EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "Saki Gateway")

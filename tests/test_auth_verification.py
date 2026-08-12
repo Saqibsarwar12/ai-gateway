@@ -30,7 +30,7 @@ from app.api.v1 import admin
 
 captured = []
 
-async def fake_email(recipient, code):
+async def fake_email(recipient, code, verification_url=None):
     captured.append((recipient, code))
 admin.send_verification_email = fake_email
 

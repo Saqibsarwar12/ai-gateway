@@ -38,10 +38,10 @@ class FakeClient:
 async def main():
     old = email.httpx.AsyncClient
     email.httpx.AsyncClient = lambda **kwargs: FakeClient(FakeResponse(payload={"messageId": "<test>"}))
-    await email.send_verification_email("user@example.com", "1234")
+    await email.send_verification_email("user@example.com", "1234", "https://example.com/verify?token=test")
     email.httpx.AsyncClient = lambda **kwargs: FakeClient(FakeResponse(status_code=401, payload={"message": "Key not found"}))
     try:
-        await email.send_verification_email("user@example.com", "1234")
+        await email.send_verification_email("user@example.com", "1234", "https://example.com/verify?token=test")
     except email.EmailDeliveryError as exc:
         assert "Key not found" in str(exc)
     else:

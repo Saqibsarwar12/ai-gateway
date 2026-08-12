@@ -30,14 +30,15 @@ export default function SignupPage() {
     try {
       const res = await fetch(`${API_BASE}/admin/auth/register`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ name, email, password }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || 'Registration failed');
       }
-      window.location.assign(`/verify-email?email=${encodeURIComponent(email)}`);
+      setSubmittedEmail(email.trim().toLowerCase());
     } catch (err: any) {
       setError(err.message || 'Registration failed');
     } finally {

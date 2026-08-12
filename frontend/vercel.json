@@ -5,39 +5,39 @@
   "rewrites": [
     {
       "source": "/api-proxy/:path*",
-      "destination": "https://ai-gateway-7dkh.onrender.com/:path*"
+      "destination": "https://saki-gateway.indevs.in/:path*"
     },
     {
       "source": "/admin/:path*",
-      "destination": "https://ai-gateway-7dkh.onrender.com/admin/:path*"
+      "destination": "https://saki-gateway.indevs.in/admin/:path*"
     },
     {
       "source": "/:username/v1/:path*",
-      "destination": "https://ai-gateway-7dkh.onrender.com/:username/v1/:path*"
+      "destination": "https://saki-gateway.indevs.in/:username/v1/:path*"
     },
     {
       "source": "/v1/:path*",
-      "destination": "https://ai-gateway-7dkh.onrender.com/v1/:path*"
+      "destination": "https://saki-gateway.indevs.in/v1/:path*"
     },
     {
       "source": "/v2/:path*",
-      "destination": "https://ai-gateway-7dkh.onrender.com/v2/:path*"
+      "destination": "https://saki-gateway.indevs.in/v2/:path*"
     },
     {
       "source": "/v3/:path*",
-      "destination": "https://ai-gateway-7dkh.onrender.com/v3/:path*"
+      "destination": "https://saki-gateway.indevs.in/v3/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://ai-gateway-7dkh.onrender.com/health"
+      "destination": "https://saki-gateway.indevs.in/health"
     },
     {
       "source": "/health/d1",
-      "destination": "https://ai-gateway-7dkh.onrender.com/health/d1"
+      "destination": "https://saki-gateway.indevs.in/health/d1"
     },
     {
       "source": "/openapi.json",
-      "destination": "https://ai-gateway-7dkh.onrender.com/openapi.json"
+      "destination": "https://saki-gateway.indevs.in/openapi.json"
     }
   ]
 }

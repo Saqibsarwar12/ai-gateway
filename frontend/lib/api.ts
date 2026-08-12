@@ -1,6 +1,6 @@
 // Live API client for AI Gateway backend
 // Uses empty base when proxied through Vercel rewrites (no CORS)
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api-proxy';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 const TOKEN_KEY = 'ai_gateway_token';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -17,7 +17,7 @@ async function request<T = any>(
   if (token) headers['Authorization'] = `Bearer ${token}`;
   else if (apiKey) headers['X-API-Key'] = apiKey;
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const res = await fetch(`${API_BASE}${path}`, { ...options, credentials: 'include', headers });
   if (!res.ok) {
     let detail = res.statusText;
     try {
@@ -126,6 +126,7 @@ export const apiChat = async (
 
   const res = await fetch(`${API_BASE}/v1/chat/completions`, {
     method: 'POST',
+    credentials: 'include',
     headers,
     body: JSON.stringify({ ...payload, stream: false }),
   });

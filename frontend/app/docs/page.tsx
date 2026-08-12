@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL || "/api-proxy";
+  process.env.NEXT_PUBLIC_API_URL || "";
 
 type Param = {
   name: string;

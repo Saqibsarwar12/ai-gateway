@@ -102,6 +102,8 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        settings.FRONTEND_BASE_URL,
+        "https://ai-gateway-dashboard.onrender.com",
         "https://saki-gateway.vercel.app",
         "https://saki-gateway.indevs.in",
         "http://localhost:3000",

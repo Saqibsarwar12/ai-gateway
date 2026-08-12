@@ -24,7 +24,7 @@ from starlette.requests import Request
 from sqlalchemy import select
 
 captured=[]
-async def fake_email(recipient, code): captured.append((recipient, code))
+async def fake_email(recipient, code, verification_url=None): captured.append((recipient, code))
 admin.settings.BREVO_API_KEY='configured-test-key'
 admin.settings.EMAIL_FROM='noreply@example.com'
 admin.send_verification_email=fake_email
@@ -39,7 +39,7 @@ async def main():
         await session.commit()
     result=await login(LoginBody(identifier='admin@example.com',password='AdminPass!123'),req('1.1.1.1'))
     assert result['user']['role']=='admin' and result['access_token']
-    async def failing_email(recipient, code):
+    async def failing_email(recipient, code, verification_url=None):
         raise admin.EmailDeliveryError('not configured')
     admin.send_verification_email=failing_email
     try:
@@ -67,7 +67,7 @@ async def main():
     async with async_session_maker() as session:
         expired=PendingRegistration(id='expired',name='expired',email='expired@example.com',hashed_password=hash_password('NewPass!123'),token_hash='expired-hash',expires_at=__import__('datetime').datetime.utcnow()-__import__('datetime').timedelta(minutes=1),created_at=__import__('datetime').datetime.utcnow())
         session.add(expired); await session.commit()
-    try: await verify_code(VerifyCodeBody(email='expired@example.com', code='0000'))
+    try: await verify_code(VerifyCodeBody(email='expired@example.com', code='000000'))
     except HTTPException as e: assert e.status_code==400 and 'expired' in str(e.detail).lower()
     else: raise AssertionError('expired code must fail')
     admin.send_verification_email=failing_email

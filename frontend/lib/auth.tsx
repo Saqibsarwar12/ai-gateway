@@ -88,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await fetch(`${API_BASE}/admin/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(data),
     });
     if (!res.ok) {
@@ -104,6 +105,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    const token = state.token;
+    if (token) {
+      void fetch(`${API_BASE}/admin/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      });
+    }
     localStorage.removeItem('ai_gateway_token');
     localStorage.removeItem('ai_gateway_user');
     setState({ token: null, user: null, isLoading: false });
@@ -114,6 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const res = await fetch(`${API_BASE}/admin/auth/me`, {
         headers: { Authorization: `Bearer ${state.token}`, Accept: 'application/json' },
+        credentials: 'include',
       });
       if (res.ok) {
         const user = await res.json();

@@ -131,21 +131,40 @@ async def migrate_auth_schema() -> None:
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
             token_hash TEXT UNIQUE NOT NULL,
+            verification_link_hash TEXT UNIQUE,
             expires_at TEXT NOT NULL,
             used_at TEXT,
             created_at TEXT NOT NULL
         )""")
+        token_columns = await d1_fetchall("PRAGMA table_info(verification_tokens)")
+        token_names = {row.get("name") for row in token_columns}
+        if "verification_link_hash" not in token_names:
+            await d1_execute("ALTER TABLE verification_tokens ADD COLUMN verification_link_hash TEXT")
         await d1_execute("""CREATE TABLE IF NOT EXISTS pending_registrations (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             email TEXT UNIQUE NOT NULL,
             hashed_password TEXT NOT NULL,
             token_hash TEXT UNIQUE NOT NULL,
+            verification_link_hash TEXT UNIQUE,
+            role TEXT NOT NULL DEFAULT 'user',
+            tier TEXT NOT NULL DEFAULT 'v1',
+            credits INTEGER NOT NULL DEFAULT 100,
             expires_at TEXT NOT NULL,
             code_attempts INTEGER NOT NULL DEFAULT 0,
             last_attempt_at TEXT,
             created_at TEXT NOT NULL
         )""")
+        pending_columns = await d1_fetchall("PRAGMA table_info(pending_registrations)")
+        pending_names = {row.get("name") for row in pending_columns}
+        for column, definition in {
+            "verification_link_hash": "TEXT",
+            "role": "TEXT NOT NULL DEFAULT 'user'",
+            "tier": "TEXT NOT NULL DEFAULT 'v1'",
+            "credits": "INTEGER NOT NULL DEFAULT 100",
+        }.items():
+            if column not in pending_names:
+                await d1_execute(f'ALTER TABLE pending_registrations ADD COLUMN "{column}" {definition}')
         pending_columns = await d1_fetchall("PRAGMA table_info(pending_registrations)")
         pending_names = {row.get("name") for row in pending_columns}
         if "code_attempts" not in pending_names:
@@ -190,6 +209,7 @@ async def migrate_auth_schema() -> None:
             id VARCHAR(255) PRIMARY KEY,
             user_id VARCHAR(255) NOT NULL,
             token_hash VARCHAR(255) UNIQUE NOT NULL,
+            verification_link_hash VARCHAR(255) UNIQUE,
             expires_at DATETIME NOT NULL,
             used_at DATETIME,
             created_at DATETIME NOT NULL
@@ -200,11 +220,25 @@ async def migrate_auth_schema() -> None:
             email VARCHAR(320) UNIQUE NOT NULL,
             hashed_password TEXT NOT NULL,
             token_hash VARCHAR(255) UNIQUE NOT NULL,
+            verification_link_hash VARCHAR(255) UNIQUE,
+            role VARCHAR(32) NOT NULL DEFAULT 'user',
+            tier VARCHAR(16) NOT NULL DEFAULT 'v1',
+            credits INTEGER NOT NULL DEFAULT 100,
             expires_at DATETIME NOT NULL,
             code_attempts INTEGER NOT NULL DEFAULT 0,
             last_attempt_at DATETIME,
             created_at DATETIME NOT NULL
         )"""))
+        pending_columns = await connection.execute(text("PRAGMA table_info(pending_registrations)"))
+        pending_names = {row[1] for row in pending_columns.fetchall()}
+        for column, definition in {
+            "verification_link_hash": "VARCHAR(255)",
+            "role": "VARCHAR(32) NOT NULL DEFAULT 'user'",
+            "tier": "VARCHAR(16) NOT NULL DEFAULT 'v1'",
+            "credits": "INTEGER NOT NULL DEFAULT 100",
+        }.items():
+            if column not in pending_names:
+                await connection.execute(text(f'ALTER TABLE pending_registrations ADD COLUMN "{column}" {definition}'))
         await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_pending_registrations_email ON pending_registrations(email)"))
         await connection.execute(text("""CREATE TABLE IF NOT EXISTS user_gateway_configs (
             id VARCHAR(255) PRIMARY KEY,
@@ -262,7 +296,7 @@ async def migrate_auth_schema() -> None:
 
 async def cleanup_legacy_users() -> dict:
     """Preserve only the configured admin row and remove all old users once."""
-    migration_key = "preserve-admin-remove-legacy-users-v2"
+    migration_key = "preserve-admin-remove-legacy-users-v3"
     if USE_D1:
         if await d1_fetchall("SELECT migration_key FROM auth_migrations WHERE migration_key = ?", [migration_key]):
             return {"skipped": True}
@@ -278,6 +312,9 @@ async def cleanup_legacy_users() -> dict:
         admin_id = admin_rows[0]["id"]
         await d1_execute("DELETE FROM verification_tokens WHERE user_id != ?", [admin_id])
         await d1_execute("DELETE FROM api_keys WHERE user_id != ?", [admin_id])
+        await d1_execute("DELETE FROM user_gateway_configs WHERE user_id != ?", [admin_id])
+        await d1_execute("DELETE FROM request_logs WHERE user_id != ?", [admin_id])
+        await d1_execute("DELETE FROM usage_stats WHERE user_id != ?", [admin_id])
         await d1_execute("DELETE FROM pending_registrations")
         await d1_execute("DELETE FROM users WHERE id != ?", [admin_id])
         await d1_execute("UPDATE users SET email_verified_at = COALESCE(email_verified_at, CURRENT_TIMESTAMP), is_active = 1 WHERE id = ?", [admin_id])
@@ -295,6 +332,9 @@ async def cleanup_legacy_users() -> dict:
         admin_id = rows[0][0]
         await connection.execute(text("DELETE FROM verification_tokens WHERE user_id != :id"), {"id": admin_id})
         await connection.execute(text("DELETE FROM api_keys WHERE user_id != :id"), {"id": admin_id})
+        await connection.execute(text("DELETE FROM user_gateway_configs WHERE user_id != :id"), {"id": admin_id})
+        await connection.execute(text("DELETE FROM request_logs WHERE user_id != :id"), {"id": admin_id})
+        await connection.execute(text("DELETE FROM usage_stats WHERE user_id != :id"), {"id": admin_id})
         await connection.execute(text("DELETE FROM pending_registrations"))
         await connection.execute(text("DELETE FROM users WHERE id != :id"), {"id": admin_id})
         await connection.execute(text("UPDATE users SET email_verified_at = COALESCE(email_verified_at, CURRENT_TIMESTAMP), is_active = 1 WHERE id = :id"), {"id": admin_id})

@@ -1,11 +1,11 @@
 'use client';
 
-import { FormEvent, Suspense, useState } from 'react';
+import { FormEvent, Suspense, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button, Input, Spinner } from '@/components/UI';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api-proxy';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
 type Status = 'form' | 'verifying' | 'success' | 'error';
 
@@ -18,6 +18,37 @@ function VerifyEmailContent() {
   const [status, setStatus] = useState<Status>('form');
   const [message, setMessage] = useState('');
 
+  useEffect(() => {
+    const token = searchParams.get('token');
+    if (!token) return;
+
+    let cancelled = false;
+    setStatus('verifying');
+    fetch(`${API_BASE}/admin/auth/verify-email?token=${encodeURIComponent(token)}`, {
+      headers: { Accept: 'application/json' },
+      credentials: 'include',
+    })
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.detail || 'Verification link failed');
+        if (cancelled) return;
+        localStorage.setItem('ai_gateway_token', body.access_token);
+        localStorage.setItem('ai_gateway_user', JSON.stringify(body.user));
+        setStatus('success');
+        setMessage(body.message || 'Email verified. Your account is now active.');
+        window.setTimeout(() => router.replace('/admin'), 1200);
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setStatus('error');
+        setMessage(err.message || 'Verification link failed');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router, searchParams]);
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     setMessage('');
@@ -26,6 +57,7 @@ function VerifyEmailContent() {
       const res = await fetch(`${API_BASE}/admin/auth/verify-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email: email.trim(), code: code.trim() }),
       });
       const body = await res.json().catch(() => ({}));
