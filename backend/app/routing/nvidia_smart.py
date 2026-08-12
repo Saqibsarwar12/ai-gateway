@@ -17,6 +17,7 @@ MAX_COOLDOWN_SECONDS = 900
 _pool_locks: dict[str, asyncio.Lock] = {}
 _pool_locks_guard = asyncio.Lock()
 _inflight: dict[tuple[str, str], int] = {}
+_account_state_locks: dict[tuple[str, str], asyncio.Lock] = {}
 
 
 class NvidiaUpstreamError(Exception):
@@ -30,6 +31,11 @@ class NvidiaUpstreamError(Exception):
 async def _get_pool_lock(config_id: str) -> asyncio.Lock:
     async with _pool_locks_guard:
         return _pool_locks.setdefault(config_id, asyncio.Lock())
+
+
+async def _get_account_state_lock(config_id: str, account_id: str) -> asyncio.Lock:
+    async with _pool_locks_guard:
+        return _account_state_locks.setdefault((config_id, account_id), asyncio.Lock())
 
 
 def _now() -> datetime:
@@ -129,7 +135,7 @@ class NvidiaSmartRouter:
     ) -> None:
         if self.session_factory is None:
             return
-        lock = await _get_pool_lock(self.config.id)
+        lock = await _get_account_state_lock(self.config.id, account.id)
         async with lock:
             from sqlalchemy import select
             from app.db.models import NvidiaSmartAccount
@@ -173,27 +179,35 @@ class NvidiaSmartRouter:
                 account.last_error_at = stored.last_error_at
                 account.last_used_at = stored.last_used_at
 
-    async def _request(self, account: Any, messages: list[dict], **kwargs) -> dict:
+    async def _request(self, client: httpx.AsyncClient, account: Any, messages: list[dict], **kwargs) -> dict:
         try:
             api_key = decrypt_gateway_secret(account.encrypted_api_key)
         except Exception as exc:
             raise NvidiaUpstreamError(500, "credential_unavailable") from exc
-        timeout = kwargs.pop("timeout", 60)
         body = {"model": account.model_id, "messages": messages}
         body.update({key: value for key, value in kwargs.items() if value is not None})
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(
-                    f"{(self.config.base_url or NVIDIA_DEFAULT_BASE_URL).rstrip('/')}/chat/completions",
-                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                    json=body,
-                )
+            response = await client.post(
+                f"{(self.config.base_url or NVIDIA_DEFAULT_BASE_URL).rstrip('/')}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=body,
+            )
         except httpx.TimeoutException as exc:
             raise NvidiaUpstreamError(None, "timeout") from exc
         except httpx.NetworkError as exc:
             raise NvidiaUpstreamError(None, "network_error") from exc
         if response.status_code >= 400:
-            raise NvidiaUpstreamError(response.status_code, f"http_{response.status_code}", _retry_after(response.headers.get("retry-after")))
+            retry_after = _retry_after(response.headers.get("retry-after"))
+            error_code = f"http_{response.status_code}"
+            try:
+                error_payload = response.json()
+                error_value = error_payload.get("error") if isinstance(error_payload, dict) else None
+                candidate = error_value.get("code") if isinstance(error_value, dict) else None
+                if isinstance(candidate, str) and 1 <= len(candidate) <= 80 and candidate.replace("_", "").replace("-", "").replace(".", "").isalnum():
+                    error_code = candidate
+            except ValueError:
+                pass
+            raise NvidiaUpstreamError(response.status_code, error_code, retry_after)
         try:
             payload = response.json()
         except ValueError as exc:
@@ -206,23 +220,29 @@ class NvidiaSmartRouter:
         if not self.config.enabled:
             raise NvidiaUpstreamError(503, "nvidia_smart_disabled")
         attempted: set[str] = set()
-        for _ in range(len(self.accounts)):
-            account = await self._select_account(attempted)
-            if not account:
-                break
-            attempted.add(account.id)
-            started = _now()
-            try:
-                result = await self._request(account, messages, **kwargs)
-                await self._persist_state(account, True, latency_ms=max(0, int((_now() - started).total_seconds() * 1000)))
-                result["model"] = public_model_id
-                return result
-            except NvidiaUpstreamError as exc:
-                await self._persist_state(account, False, exc.status_code, exc.code, exc.retry_after)
-                if exc.status_code not in TRANSIENT_STATUS_CODES and exc.status_code not in AUTH_STATUS_CODES:
+        timeout = kwargs.pop("timeout", 60)
+        last_error: NvidiaUpstreamError | None = None
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            for _ in range(len(self.accounts)):
+                account = await self._select_account(attempted)
+                if not account:
                     break
-            finally:
-                await self._release_account(account)
+                attempted.add(account.id)
+                started = _now()
+                try:
+                    result = await self._request(client, account, messages, **kwargs)
+                    await self._persist_state(account, True, latency_ms=max(0, int((_now() - started).total_seconds() * 1000)))
+                    result["model"] = public_model_id
+                    return result
+                except NvidiaUpstreamError as exc:
+                    last_error = exc
+                    await self._persist_state(account, False, exc.status_code, exc.code, exc.retry_after)
+                    if exc.status_code not in TRANSIENT_STATUS_CODES and exc.status_code not in AUTH_STATUS_CODES:
+                        break
+                finally:
+                    await self._release_account(account)
+        if last_error and last_error.status_code and last_error.status_code < 500 and last_error.status_code not in TRANSIENT_STATUS_CODES:
+            raise last_error
         raise NvidiaUpstreamError(503, "nvidia_accounts_unavailable")
 
     async def health_check(self, account: Any) -> dict:
@@ -233,6 +253,8 @@ class NvidiaSmartRouter:
                     f"{(self.config.base_url or NVIDIA_DEFAULT_BASE_URL).rstrip('/')}/models",
                     headers={"Authorization": f"Bearer {api_key}"},
                 )
-            return {"ok": response.status_code == 200, "status_code": response.status_code}
-        except (httpx.TimeoutException, httpx.NetworkError):
-            return {"ok": False, "status_code": None}
+            return {"ok": response.status_code == 200, "status_code": response.status_code, "retry_after": _retry_after(response.headers.get("retry-after"))}
+        except httpx.TimeoutException:
+            return {"ok": False, "status_code": None, "error": "timeout"}
+        except httpx.NetworkError:
+            return {"ok": False, "status_code": None, "error": "network_error"}

@@ -15,6 +15,7 @@ from app.core.config import settings
 from sqlalchemy import select
 import shortuuid
 import time
+from app.routing.nvidia_smart import NvidiaSmartRouter, NvidiaUpstreamError
 
 # Tier hierarchy: a v3 user can call v1, v2, v3
 TIER_ORDER = ["v1", "v2", "v3"]
@@ -186,7 +187,6 @@ def make_openai_router(version: str) -> APIRouter:
                 ]
 
             if smart_config and smart_config.public_model_id == req.model:
-                from app.routing.nvidia_smart import NvidiaSmartRouter
                 smart_router = NvidiaSmartRouter(smart_config, smart_accounts, async_session_maker)
                 result = await smart_router.chat(
                     req.model,
@@ -224,6 +224,21 @@ def make_openai_router(version: str) -> APIRouter:
 
         except HTTPException:
             raise
+        except NvidiaUpstreamError as e:
+            latency_ms = int((time.time() - start) * 1000)
+            status_code = e.status_code or 503
+            raise HTTPException(
+                status_code=status_code,
+                detail={
+                    "error": {
+                        "message": "NVIDIA Smart upstream request failed",
+                        "type": "upstream_error",
+                        "code": e.code,
+                        "retry_after": e.retry_after,
+                    }
+                },
+                headers={"Retry-After": str(e.retry_after)} if e.retry_after else None,
+            )
         except Exception as e:
             latency_ms = int((time.time() - start) * 1000)
             try:

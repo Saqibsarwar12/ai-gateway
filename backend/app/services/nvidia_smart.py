@@ -1,7 +1,7 @@
 """NVIDIA Smart configuration cache and admin-facing helpers."""
 import asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
@@ -102,6 +102,33 @@ async def get_snapshot(include_disabled: bool = False) -> tuple[NvidiaSmartConfi
         return None, accounts
 
 
+async def _persist_test_state(account: NvidiaSmartAccount, ok: bool, status_code: int | None, error: str | None) -> None:
+    now = datetime.utcnow()
+    async with async_session_maker() as session:
+        result = await session.execute(select(NvidiaSmartAccount).where(NvidiaSmartAccount.id == account.id))
+        stored = result.scalar_one_or_none()
+        if not stored:
+            return
+        stored.last_used_at = now
+        stored.updated_at = now
+        stored.last_status_code = status_code
+        if ok:
+            stored.status = "healthy"
+            stored.cooldown_until = None
+            stored.consecutive_failures = 0
+            stored.success_count = (stored.success_count or 0) + 1
+            stored.last_error_code = None
+            stored.last_error_at = None
+        else:
+            stored.failure_count = (stored.failure_count or 0) + 1
+            stored.consecutive_failures = (stored.consecutive_failures or 0) + 1
+            stored.last_error_code = error or "upstream_unavailable"
+            stored.last_error_at = now
+            stored.status = "auth_failed" if status_code in {401, 403} else "cooling_down"
+            stored.cooldown_until = None if status_code in {401, 403} else now + timedelta(seconds=300)
+        await session.commit()
+
+
 async def test_account(account_id: str) -> dict[str, Any]:
     config, accounts = await get_snapshot(include_disabled=True)
     account = next((item for item in accounts if item.id == account_id), None)
@@ -118,20 +145,37 @@ async def test_account(account_id: str) -> dict[str, Any]:
                 f"{NVIDIA_DEFAULT_BASE_URL}/models",
                 headers={"Authorization": f"Bearer {api_key}"},
             )
+        retry_after = response.headers.get("retry-after")
+        ok = response.status_code == 200
+        error = None if ok else f"upstream_http_{response.status_code}"
+        await _persist_test_state(account, ok, response.status_code, error)
         return {
-            "ok": response.status_code == 200,
+            "ok": ok,
             "status_code": response.status_code,
+            "retry_after": retry_after,
             "latency_ms": round((time.perf_counter() - started) * 1000, 2),
             "account_id": account.id,
-            "error": None if response.status_code == 200 else f"upstream_http_{response.status_code}",
+            "error": error,
         }
-    except (httpx.TimeoutException, httpx.NetworkError):
+    except httpx.TimeoutException:
+        await _persist_test_state(account, False, None, "timeout")
         return {
             "ok": False,
             "status_code": None,
+            "retry_after": None,
             "latency_ms": round((time.perf_counter() - started) * 1000, 2),
             "account_id": account.id,
-            "error": "upstream_unavailable",
+            "error": "timeout",
+        }
+    except httpx.NetworkError:
+        await _persist_test_state(account, False, None, "network_error")
+        return {
+            "ok": False,
+            "status_code": None,
+            "retry_after": None,
+            "latency_ms": round((time.perf_counter() - started) * 1000, 2),
+            "account_id": account.id,
+            "error": "network_error",
         }
 
 

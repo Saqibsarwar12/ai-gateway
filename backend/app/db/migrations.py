@@ -110,6 +110,7 @@ async def migrate_auth_schema() -> None:
             cooldown_until TEXT,
             consecutive_failures INTEGER DEFAULT 0,
             success_count INTEGER DEFAULT 0,
+            failure_count INTEGER DEFAULT 0,
             avg_latency_ms REAL DEFAULT 0,
             last_status_code INTEGER,
             last_error_code TEXT,
@@ -122,6 +123,8 @@ async def migrate_auth_schema() -> None:
         await d1_execute("CREATE INDEX IF NOT EXISTS idx_nvidia_smart_accounts_status ON nvidia_smart_accounts(config_id, status)")
         nvidia_columns = await d1_fetchall("PRAGMA table_info(nvidia_smart_accounts)")
         nvidia_names = {row.get("name") for row in nvidia_columns}
+        if "failure_count" not in nvidia_names:
+            await d1_execute("ALTER TABLE nvidia_smart_accounts ADD COLUMN failure_count INTEGER DEFAULT 0")
         if "avg_latency_ms" not in nvidia_names:
             await d1_execute("ALTER TABLE nvidia_smart_accounts ADD COLUMN avg_latency_ms REAL DEFAULT 0")
         await d1_execute("""CREATE TABLE IF NOT EXISTS verification_tokens (
@@ -237,6 +240,7 @@ async def migrate_auth_schema() -> None:
             cooldown_until DATETIME,
             consecutive_failures INTEGER DEFAULT 0,
             success_count INTEGER DEFAULT 0,
+            failure_count INTEGER DEFAULT 0,
             avg_latency_ms FLOAT DEFAULT 0,
             last_status_code INTEGER,
             last_error_code VARCHAR(128),
@@ -249,6 +253,8 @@ async def migrate_auth_schema() -> None:
         await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_nvidia_smart_accounts_status ON nvidia_smart_accounts(config_id, status)"))
         nvidia_columns = await connection.execute(text("PRAGMA table_info(nvidia_smart_accounts)"))
         nvidia_names = {row[1] for row in nvidia_columns.fetchall()}
+        if "failure_count" not in nvidia_names:
+            await connection.execute(text("ALTER TABLE nvidia_smart_accounts ADD COLUMN failure_count INTEGER DEFAULT 0"))
         if "avg_latency_ms" not in nvidia_names:
             await connection.execute(text("ALTER TABLE nvidia_smart_accounts ADD COLUMN avg_latency_ms FLOAT DEFAULT 0"))
         await connection.execute(text("CREATE TABLE IF NOT EXISTS auth_migrations (migration_key VARCHAR(255) PRIMARY KEY, applied_at DATETIME NOT NULL)"))
