@@ -47,7 +47,7 @@ def _response(config, accounts):
     return {"config": public_config_view(config, accounts), "accounts": [public_account_view(a) for a in accounts]}
 
 
-@router.get("/admin/nvidia-smart")
+@router.get("/admin/nvidia-smart/configuration")
 async def get_nvidia_smart(_: dict = Depends(require_admin)):
     config, accounts = await get_snapshot(include_disabled=True)
     return _response(config, accounts)

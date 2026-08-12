@@ -50,7 +50,7 @@ export default function NvidiaSmartPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/nvidia-smart`, { headers });
+      const res = await fetch(`${API_BASE_URL}/admin/nvidia-smart/configuration`, { headers });
       if (!res.ok) throw new Error(`Failed to load NVIDIA Smart (${res.status})`);
       const data = await res.json();
       setConfig(data.config);
