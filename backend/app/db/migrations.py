@@ -32,6 +32,25 @@ async def migrate_auth_schema() -> None:
                 await d1_execute(f'ALTER TABLE users ADD COLUMN "{column}" {definition}')
         await d1_execute("UPDATE users SET username = lower(name) WHERE username IS NULL OR username = ''")
         await d1_execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+        model_columns = await d1_fetchall("PRAGMA table_info(models)")
+        model_names = {row.get("name") for row in model_columns}
+        model_additions = {
+            "model_id": "TEXT",
+            "mode": "TEXT DEFAULT 'chat'",
+            "input_cost_per_1m": "REAL DEFAULT 0",
+            "output_cost_per_1m": "REAL DEFAULT 0",
+            "context_window": "INTEGER DEFAULT 8192",
+            "supports_functions": "INTEGER DEFAULT 0",
+            "supports_vision": "INTEGER DEFAULT 0",
+            "is_active": "INTEGER DEFAULT 1",
+            "min_tier": "TEXT DEFAULT 'v1'",
+            "created_at": "TEXT",
+        }
+        for column, definition in model_additions.items():
+            if column not in model_names:
+                await d1_execute(f'ALTER TABLE models ADD COLUMN "{column}" {definition}')
+        await d1_execute("UPDATE models SET model_id = COALESCE(model_id, id) WHERE model_id IS NULL OR model_id = ''")
+        await d1_execute("UPDATE models SET is_active = COALESCE(is_active, 1) WHERE is_active IS NULL")
         await d1_execute("""CREATE TABLE IF NOT EXISTS user_gateway_configs (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
@@ -120,6 +139,25 @@ async def migrate_auth_schema() -> None:
             await connection.execute(text("ALTER TABLE users ADD COLUMN username VARCHAR(64)"))
         await connection.execute(text("UPDATE users SET username = lower(name) WHERE username IS NULL OR username = ''"))
         await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)"))
+        model_columns = await connection.execute(text("PRAGMA table_info(models)"))
+        model_names = {row[1] for row in model_columns.fetchall()}
+        model_additions = {
+            "model_id": "VARCHAR(255)",
+            "mode": "VARCHAR(32) DEFAULT 'chat'",
+            "input_cost_per_1m": "FLOAT DEFAULT 0",
+            "output_cost_per_1m": "FLOAT DEFAULT 0",
+            "context_window": "INTEGER DEFAULT 8192",
+            "supports_functions": "BOOLEAN DEFAULT 0",
+            "supports_vision": "BOOLEAN DEFAULT 0",
+            "is_active": "BOOLEAN DEFAULT 1",
+            "min_tier": "VARCHAR(16) DEFAULT 'v1'",
+            "created_at": "DATETIME",
+        }
+        for column, definition in model_additions.items():
+            if column not in model_names:
+                await connection.execute(text(f'ALTER TABLE models ADD COLUMN "{column}" {definition}'))
+        await connection.execute(text("UPDATE models SET model_id = COALESCE(model_id, id) WHERE model_id IS NULL OR model_id = ''"))
+        await connection.execute(text("UPDATE models SET is_active = COALESCE(is_active, 1) WHERE is_active IS NULL"))
         await connection.execute(text("""CREATE TABLE IF NOT EXISTS verification_tokens (
             id VARCHAR(255) PRIMARY KEY,
             user_id VARCHAR(255) NOT NULL,
