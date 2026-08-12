@@ -84,7 +84,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"WARNING: Admin seed skipped — {e}")
 
-    await cleanup_legacy_users()
+    try:
+        await cleanup_legacy_users()
+    except RuntimeError:
+        pass
 
     yield
 
