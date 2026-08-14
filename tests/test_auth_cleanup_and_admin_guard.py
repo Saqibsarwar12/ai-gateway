@@ -24,7 +24,7 @@ from sqlalchemy import select
 from app.core.auth import create_access_token, hash_password
 from app.db.models import Base, User
 from app.db.session import async_session_maker, engine
-from app.db.migrations import cleanup_legacy_users
+from app.db.migrations import cleanup_legacy_users, migrate_auth_schema
 from app.api.v1.admin import delete_user
 
 
@@ -39,6 +39,7 @@ async def test_cleanup_and_admin_delete_guard():
         ])
         await session.commit()
 
+    await migrate_auth_schema()
     result = await cleanup_legacy_users()
     assert result["admin_id"] == "admin"
     async with async_session_maker() as session:
