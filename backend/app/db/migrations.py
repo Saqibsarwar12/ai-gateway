@@ -298,6 +298,7 @@ async def cleanup_legacy_users() -> dict:
     """Preserve only the configured admin row and remove all old users once."""
     migration_key = "preserve-admin-remove-legacy-users-v5"
     if USE_D1:
+        await d1_execute("CREATE TABLE IF NOT EXISTS auth_migrations (migration_key TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
         marker_rows = await d1_fetchall("SELECT migration_key FROM auth_migrations WHERE migration_key = ?", [migration_key])
         if marker_rows:
             invariant = await d1_fetchall("""SELECT
@@ -331,6 +332,7 @@ async def cleanup_legacy_users() -> dict:
         return {"admin_id": admin_id, "deleted_non_admins": True}
 
     async with engine.begin() as connection:
+        await connection.execute(text("CREATE TABLE IF NOT EXISTS auth_migrations (migration_key VARCHAR(255) PRIMARY KEY, applied_at DATETIME NOT NULL)"))
         marker = await connection.execute(text("SELECT migration_key FROM auth_migrations WHERE migration_key = :key"), {"key": migration_key})
         if marker.first():
             invariant = await connection.execute(text("""SELECT
