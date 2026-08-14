@@ -1,5 +1,4 @@
 // Live API client for AI Gateway backend
-// Uses empty base when proxied through Vercel rewrites (no CORS)
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 const TOKEN_KEY = 'ai_gateway_token';
 
@@ -246,5 +245,4 @@ export type User = {
 };
 
 export type UserResponse = User;
-
 export const API_BASE_URL = API_BASE;

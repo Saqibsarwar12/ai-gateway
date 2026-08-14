@@ -15,6 +15,7 @@ API key ownership:
 import os
 import time
 import hashlib
+import re
 import secrets
 import uuid
 from datetime import datetime, timedelta
@@ -45,6 +46,10 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain: str, hashed: str) -> bool:
     try:
+        # Legacy SHA-256 without salt (64 hex chars, no separator)
+        if re.fullmatch(r"[0-9a-f]{64}", hashed):
+            legacy = hashlib.sha256(plain.encode()).hexdigest()
+            return secrets.compare_digest(legacy, hashed)
         salt, stored_hash = hashed.split("$")
         check = hashlib.pbkdf2_hmac("sha256", plain.encode(), salt.encode(), 100000)
         return secrets.compare_digest(check.hex(), stored_hash)

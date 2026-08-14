@@ -53,7 +53,6 @@ async def test_auth_flow_and_verification(setup_db, monkeypatch):
         sent.append((recipient, code))
 
     monkeypatch.setattr(admin, "send_verification_email", fake_email)
-    admin._login_attempts.clear()
     request = __import__("starlette.requests", fromlist=["Request"]).Request(
         {"type": "http", "method": "POST", "path": "/", "headers": [(b"x-forwarded-for", b"127.0.0.1")]}
     )
@@ -81,7 +80,6 @@ async def test_duplicate_registration_and_expired_pending(setup_db, monkeypatch)
         return None
 
     monkeypatch.setattr(admin, "send_verification_email", fake_email)
-    admin._login_attempts.clear()
     request = __import__("starlette.requests", fromlist=["Request"]).Request(
         {"type": "http", "method": "POST", "path": "/", "headers": [(b"x-forwarded-for", b"127.0.0.2")]}
     )

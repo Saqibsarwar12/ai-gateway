@@ -75,6 +75,10 @@ export default function UsersPage() {
 
   async function remove(u: UserWithTier) {
     if (!confirm(`Delete user ${u.email}? This cannot be undone.`)) return;
+    if (u.role === 'admin') {
+      setError('The admin account cannot be deleted.');
+      return;
+    }
     await fetch(`${API_BASE_URL}/admin/users/${u.id}`, { method: 'DELETE', headers });
     load();
   }

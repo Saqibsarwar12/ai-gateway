@@ -16,7 +16,7 @@ services:
   - key: APP_BASE_URL
     value: https://saki-gateway.indevs.in
   - key: FRONTEND_BASE_URL
-    value: https://ai-gateway-frontend.onrender.com
+    value: https://saki-gateway.vercel.app
   - key: PUBLIC_GATEWAY_BASE_URL
     value: https://saki-gateway.indevs.in
   - key: DEBUG
@@ -31,6 +31,8 @@ services:
     value: 7be17faee5f8104b96b7887ab587398f
   - key: CF_D1_ID
     value: e14f279e-fb81-4190-8820-4305bea8e140
+  - key: CF_KV_NAMESPACE_ID
+    value: 052e4652c1f1412fbc847c86f3e93824
   - key: ADMIN_EMAIL
     value: saqibsarwar003@gmail.com
   - key: SECRET_KEY

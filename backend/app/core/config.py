@@ -27,6 +27,7 @@ class Settings:
     AUTH_RATE_LIMIT_MAX_ATTEMPTS = 5
     PERSONAL_GATEWAY_MAX_CONFIGS = int(os.getenv("PERSONAL_GATEWAY_MAX_CONFIGS", "5"))
     PERSONAL_GATEWAY_ENCRYPTION_KEY = os.getenv("PERSONAL_GATEWAY_ENCRYPTION_KEY", "")
+    CF_KV_NAMESPACE_ID = os.getenv("CF_KV_NAMESPACE_ID", "")
     PUBLIC_GATEWAY_BASE_URL = os.getenv("PUBLIC_GATEWAY_BASE_URL", "https://saki-gateway.indevs.in")
 
     # Tier rate limits (requests per minute)

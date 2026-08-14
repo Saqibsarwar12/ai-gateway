@@ -8,10 +8,6 @@
       "destination": "https://saki-gateway.indevs.in/:path*"
     },
     {
-      "source": "/admin/:path*",
-      "destination": "https://saki-gateway.indevs.in/admin/:path*"
-    },
-    {
       "source": "/:username/v1/:path*",
       "destination": "https://saki-gateway.indevs.in/:username/v1/:path*"
     },

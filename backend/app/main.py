@@ -135,45 +135,17 @@ async def health_d1():
     return {"status": "ok", "database": "d1", "result": row}
 
 
-# ─── Proxy all other requests to Next.js ───────────────────────────────
-@app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
-async def proxy_to_nextjs(path: str, request: Request):
-    """Proxy frontend requests to the Next.js server running on port 3001."""
-    url = f"{NEXT_BASE}/{path}"
-    if request.url.query:
-        url = f"{url}?{request.url.query}"
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.request(
-                method=request.method,
-                url=url,
-                headers={k: v for k, v in request.headers.items() if k.lower() != "host"},
-                content=await request.body(),
-            )
-            response_headers = {
-                key: value
-                for key, value in resp.headers.items()
-                if key.lower() not in {
-                    "content-encoding",
-                    "content-length",
-                    "transfer-encoding",
-                    "connection",
-                    "keep-alive",
-                    "proxy-authenticate",
-                    "proxy-authorization",
-                    "te",
-                    "trailers",
-                    "upgrade",
-                }
-            }
-            return Response(
-                content=resp.content,
-                status_code=resp.status_code,
-                headers=response_headers,
-            )
-    except httpx.ConnectError:
-        return Response(
-            content=b"<html><body><h2>Frontend starting up, please refresh in a moment.</h2></body></html>",
-            status_code=503,
-            media_type="text/html",
-        )
+# ─── Root / is API-only base URL ───────────────────────────────────────
+async def root_info():
+    return {
+        "service": "Saki Gateway API",
+        "status": "ok",
+        "version": settings.VERSION,
+        "docs": "/openapi.json",
+        "frontend": settings.FRONTEND_BASE_URL,
+    }
+
+app.add_api_route("/", root_info, methods=["GET"])
+
+# NOTE: Dashboard is served exclusively from Vercel (saki-gateway.vercel.app).
+# This Render backend is API-only.

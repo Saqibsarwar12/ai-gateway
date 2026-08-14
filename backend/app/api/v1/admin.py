@@ -51,6 +51,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 from pydantic import BaseModel, EmailStr, Field
 from app.services.email import EmailDeliveryError, send_verification_email
+from app.db import kv as rate_limit_kv
 from app.core.usernames import normalize_username, fallback_username, valid_username
 
 router = APIRouter()
@@ -120,56 +121,46 @@ async def _require_verified_user(user: User) -> None:
             headers={"X-Needs-Verification": "true"},
         )
 
-# ─── Per-email rate limiting for verify-code ─────────────────
-_verify_attempts: dict = {}  # email → list of timestamps
-
-
-def _check_verify_rate_limit(email: str) -> None:
-    """Block after VERIFICATION_CODE_MAX_ATTEMPTS wrong codes in 15 min window."""
-    now = time.time()
+# ─── Per-email rate limiting for verify-code (KV-backed) ──────
+async def _check_verify_rate_limit(email: str) -> None:
+    """Block after VERIFICATION_CODE_MAX_ATTEMPTS wrong codes in window."""
     window = settings.VERIFICATION_CODE_MINUTES * 60
-    key = f"verify:{email.lower()}"
-    attempts = [t for t in _verify_attempts.get(key, []) if now - t < window]
-    if len(attempts) >= settings.VERIFICATION_CODE_MAX_ATTEMPTS:
+    key = f"auth:verify:{email.lower()}"
+    allowed, _ = await rate_limit_kv.check_rate_limit(key, window, settings.VERIFICATION_CODE_MAX_ATTEMPTS)
+    if not allowed:
         raise HTTPException(
             status_code=429,
-            detail=f"Too many incorrect codes. Wait 15 minutes or sign up again with a new code.",
+            detail=f"Too many incorrect codes. Wait {settings.VERIFICATION_CODE_MINUTES} minutes or sign up again.",
         )
 
 
-def _record_verify_failure(email: str) -> None:
-    key = f"verify:{email.lower()}"
-    if key not in _verify_attempts:
-        _verify_attempts[key] = []
-    _verify_attempts[key].append(time.time())
+async def _record_verify_failure(email: str) -> None:
+    key = f"auth:verify:{email.lower()}"
+    await rate_limit_kv.record_attempt(key, settings.VERIFICATION_CODE_MINUTES * 60)
 
 
-# ─── Global login rate limit (in-memory, per-IP) ─────────────────
-_login_attempts: dict = {}  # ip -> [timestamps]
-
-
-def _check_login_rate_limit(ip: str) -> None:
-    now = time.time()
-    window = 60 * 5  # 5 minutes
+# ─── Global login rate limit (KV-backed, per-IP) ─────────────────
+async def _check_login_rate_limit(ip: str) -> None:
+    window = 60 * 5
     max_attempts = 10
-    attempts = [t for t in _login_attempts.get(ip, []) if now - t < window]
-    if len(attempts) >= max_attempts:
+    key = f"auth:login:{ip}"
+    allowed, _ = await rate_limit_kv.check_rate_limit(key, window, max_attempts)
+    if not allowed:
         raise HTTPException(
             status_code=429,
-            detail=f"Too many login attempts from this IP. Try again in a few minutes.",
+            detail="Too many login attempts from this IP. Try again in a few minutes.",
         )
-    attempts.append(now)
-    _login_attempts[ip] = attempts
+    await rate_limit_kv.record_attempt(key, window)
 
 
-def _check_registration_rate_limit(ip: str) -> None:
-    now = time.time()
+async def _check_registration_rate_limit(ip: str) -> None:
     window = settings.AUTH_RATE_LIMIT_WINDOW_SECONDS
-    attempts = [t for t in _login_attempts.get(f"register:{ip}", []) if now - t < window]
-    if len(attempts) >= settings.AUTH_RATE_LIMIT_MAX_ATTEMPTS:
+    max_attempts = settings.AUTH_RATE_LIMIT_MAX_ATTEMPTS
+    key = f"auth:register:{ip}"
+    allowed, _ = await rate_limit_kv.check_rate_limit(key, window, max_attempts)
+    if not allowed:
         raise HTTPException(status_code=429, detail="Too many registration attempts. Try again later.")
-    attempts.append(now)
-    _login_attempts[f"register:{ip}"] = attempts
+    await rate_limit_kv.record_attempt(key, window)
 
 
 def _set_session_cookie(response: Optional[Response], token: str) -> None:
@@ -210,7 +201,7 @@ async def login(body: LoginBody, request: Request, response: Response = None):
     unless the caller is an admin.
     """
     started = time.perf_counter()
-    _check_login_rate_limit(_client_ip(request))
+    await _check_login_rate_limit(_client_ip(request))
     identifier = (body.identifier or body.email or "").strip()
     if not identifier or not body.password:
         raise HTTPException(status_code=400, detail="Missing identifier or password")
@@ -284,7 +275,7 @@ class RegisterBody(BaseModel):
 async def register(body: RegisterBody, request: Request):
     """Send verification first; create the real user only after confirmation."""
     started = time.perf_counter()
-    _check_registration_rate_limit(_client_ip(request))
+    await _check_registration_rate_limit(_client_ip(request))
 
     name = body.name.strip()
     email = body.email.strip().lower()
@@ -399,7 +390,7 @@ async def verify_code(body: VerifyCodeBody, response: Response = None):
     now = datetime.utcnow()
 
     # Per-email rate limit — blocks before DB lookup
-    _check_verify_rate_limit(email)
+    await _check_verify_rate_limit(email)
 
     async with async_session_maker() as session:
         result = await session.execute(select(PendingRegistration).where(PendingRegistration.email == email))
@@ -427,7 +418,7 @@ async def verify_code(body: VerifyCodeBody, response: Response = None):
             pending.last_attempt_at = now
             await session.commit()
             # Also record in global in-memory rate limit
-            _record_verify_failure(email)
+            await _record_verify_failure(email)
             remaining = settings.VERIFICATION_CODE_MAX_ATTEMPTS - pending.code_attempts
             raise HTTPException(
                 status_code=400,
@@ -942,6 +933,8 @@ async def delete_user(user_id: str, _: dict = Depends(require_admin)):
         u = result.scalar_one_or_none()
         if not u:
             raise HTTPException(status_code=404, detail="User not found")
+        if u.role == "admin" or u.email.lower() == settings.ADMIN_EMAIL.lower():
+            raise HTTPException(status_code=403, detail="The admin account cannot be deleted")
         # Cascade delete related data so we dont leave orphaned rows
         from app.db.models import APIKey, UserGatewayConfig, VerificationToken, RequestLog, UsageStats
         from sqlalchemy import delete as sqla_delete
