@@ -296,10 +296,19 @@ async def migrate_auth_schema() -> None:
 
 async def cleanup_legacy_users() -> dict:
     """Preserve only the configured admin row and remove all old users once."""
-    migration_key = "preserve-admin-remove-legacy-users-v3"
+    migration_key = "preserve-admin-remove-legacy-users-v5"
     if USE_D1:
-        if await d1_fetchall("SELECT migration_key FROM auth_migrations WHERE migration_key = ?", [migration_key]):
-            return {"skipped": True}
+        marker_rows = await d1_fetchall("SELECT migration_key FROM auth_migrations WHERE migration_key = ?", [migration_key])
+        if marker_rows:
+            invariant = await d1_fetchall("""SELECT
+                (SELECT COUNT(*) FROM users) AS user_count,
+                (SELECT COUNT(*) FROM users WHERE lower(email) = lower(?) AND role = 'admin') AS admin_count,
+                (SELECT COUNT(*) FROM pending_registrations) AS pending_count
+            """, [settings.ADMIN_EMAIL])
+            state = invariant[0] if invariant else {}
+            if state.get("user_count") == 1 and state.get("admin_count") == 1 and state.get("pending_count") == 0:
+                return {"skipped": True}
+            await d1_execute("DELETE FROM auth_migrations WHERE migration_key = ?", [migration_key])
         admin_rows = []
         for attempt in range(10):
             admin_rows = await d1_fetchall("SELECT id FROM users WHERE lower(email) = lower(?) AND role = 'admin'", [settings.ADMIN_EMAIL])
@@ -324,7 +333,15 @@ async def cleanup_legacy_users() -> dict:
     async with engine.begin() as connection:
         marker = await connection.execute(text("SELECT migration_key FROM auth_migrations WHERE migration_key = :key"), {"key": migration_key})
         if marker.first():
-            return {"skipped": True}
+            invariant = await connection.execute(text("""SELECT
+                (SELECT COUNT(*) FROM users) AS user_count,
+                (SELECT COUNT(*) FROM users WHERE lower(email) = lower(:email) AND role = 'admin') AS admin_count,
+                (SELECT COUNT(*) FROM pending_registrations) AS pending_count
+            """), {"email": settings.ADMIN_EMAIL})
+            state = invariant.first()
+            if state and state.user_count == 1 and state.admin_count == 1 and state.pending_count == 0:
+                return {"skipped": True}
+            await connection.execute(text("DELETE FROM auth_migrations WHERE migration_key = :key"), {"key": migration_key})
         result = await connection.execute(text("SELECT id FROM users WHERE lower(email) = lower(:email) AND role = 'admin'"), {"email": settings.ADMIN_EMAIL})
         rows = result.fetchall()
         if len(rows) != 1:
