@@ -123,17 +123,6 @@ PROVIDER_PRESETS: list[ProviderPreset] = [
         "hint": "abab6.5s, abab6.5g, abab5.5",
     },
     {
-        "id": "nvidia",
-        "name": "NVIDIA NIM",
-        "type": "openai",
-        "base_url": "https://integrate.api.nvidia.com/v1",
-        "models_path": "/models",
-        "models_field": "data",
-        "model_id_field": "id",
-        "test_path": "/models",
-        "hint": "meta/llama-3.1-70b-instruct, mistralai/mixtral-8x7b-instruct, etc.",
-    },
-    {
         "id": "together",
         "name": "Together AI",
         "type": "openai",

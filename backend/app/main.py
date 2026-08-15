@@ -22,7 +22,7 @@ from app.api.v1 import admin
 from app.api.v1.nvidia_smart import router as nvidia_smart_admin_router
 from app.api.personal_gateway import router as personal_gateway_router
 from app.api.gateway import make_openai_router
-from app.db.migrations import migrate_auth_schema, cleanup_legacy_users
+from app.db.migrations import migrate_auth_schema, cleanup_legacy_users, cleanup_generic_nvidia_providers
 
 NEXT_PORT = int(os.getenv("NEXT_PORT", "3001"))
 NEXT_BASE = f"http://localhost:{NEXT_PORT}"
@@ -88,6 +88,8 @@ async def lifespan(app: FastAPI):
         await cleanup_legacy_users()
     except RuntimeError:
         pass
+
+    await cleanup_generic_nvidia_providers()
 
     yield
 

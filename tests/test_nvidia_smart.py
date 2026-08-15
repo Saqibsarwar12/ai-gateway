@@ -10,6 +10,9 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "backend"))
 
 from app.core.auth import encrypt_gateway_secret
 from app.routing.nvidia_smart import NvidiaSmartRouter, NvidiaUpstreamError
+from app.db.models import Base, Provider, Model
+from app.db.session import async_session_maker, engine
+from app.db.migrations import cleanup_generic_nvidia_providers
 import app.routing.nvidia_smart as smart
 
 
@@ -70,6 +73,22 @@ async def no_persist(*args, **kwargs):
     return None
 
 
+async def check_generic_nvidia_cleanup_preserves_dedicated_tables():
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    async with async_session_maker() as session:
+        provider = Provider(id="legacy-nvidia", name="NVIDIA", provider_type="nvidia", base_url="https://integrate.api.nvidia.com/v1", models=["legacy-model"])
+        session.add(provider)
+        await session.flush()
+        session.add(Model(id="legacy-model-row", name="legacy-model", provider_id=provider.id, model_id="legacy-model"))
+        await session.commit()
+    result = await cleanup_generic_nvidia_providers()
+    assert result["deleted_providers"] == 1
+    async with async_session_maker() as session:
+        assert await session.get(Provider, "legacy-nvidia") is None
+        assert await session.get(Model, "legacy-model-row") is None
+
+
 async def run():
     original_client = smart.httpx.AsyncClient
     try:
@@ -104,7 +123,8 @@ async def run():
         else:
             raise AssertionError("cooling-down account should not be selected")
 
-        print("nvidia smart router checks: PASS")
+        await check_generic_nvidia_cleanup_preserves_dedicated_tables()
+        print("nvidia smart router and provider-boundary checks: PASS")
     finally:
         smart.httpx.AsyncClient = original_client
 

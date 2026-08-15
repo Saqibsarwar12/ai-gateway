@@ -359,3 +359,27 @@ async def cleanup_legacy_users() -> dict:
         await connection.execute(text("UPDATE users SET email_verified_at = COALESCE(email_verified_at, CURRENT_TIMESTAMP), is_active = 1 WHERE id = :id"), {"id": admin_id})
         await connection.execute(text("INSERT INTO auth_migrations (migration_key, applied_at) VALUES (:key, CURRENT_TIMESTAMP)"), {"key": migration_key})
         return {"admin_id": admin_id, "deleted_non_admins": True}
+
+
+async def cleanup_generic_nvidia_providers() -> dict:
+    """Remove legacy generic NVIDIA rows; NVIDIA Smart has its own tables and router."""
+    if USE_D1:
+        rows = await d1_fetchall("SELECT id FROM providers WHERE lower(provider_type) = 'nvidia'")
+        provider_ids = [row.get("id") for row in rows if row.get("id")]
+        for provider_id in provider_ids:
+            await d1_execute("DELETE FROM models WHERE provider_id = ?", [provider_id])
+        if provider_ids:
+            placeholders = ",".join("?" for _ in provider_ids)
+            await d1_execute(f"DELETE FROM providers WHERE id IN ({placeholders})", provider_ids)
+        return {"deleted_providers": len(provider_ids)}
+
+    async with engine.begin() as connection:
+        rows = await connection.execute(text("SELECT id FROM providers WHERE lower(provider_type) = 'nvidia'"))
+        provider_ids = [row[0] for row in rows.fetchall()]
+        for provider_id in provider_ids:
+            await connection.execute(text("DELETE FROM models WHERE provider_id = :provider_id"), {"provider_id": provider_id})
+        if provider_ids:
+            placeholders = ",".join(f":id_{index}" for index in range(len(provider_ids)))
+            params = {f"id_{index}": provider_id for index, provider_id in enumerate(provider_ids)}
+            await connection.execute(text(f"DELETE FROM providers WHERE id IN ({placeholders})"), params)
+        return {"deleted_providers": len(provider_ids)}

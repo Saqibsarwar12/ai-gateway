@@ -684,6 +684,11 @@ async def _sync_manual_models(session, provider_id: str, models_list: List[str])
 
 @router.post("/providers", response_model=ProviderResponse)
 async def create_provider(data: ProviderCreate, _: dict = Depends(require_admin)):
+    if data.provider_type.strip().lower() == "nvidia":
+        raise HTTPException(
+            status_code=400,
+            detail="NVIDIA Smart is a built-in provider. Configure it from Admin → NVIDIA Smart instead of adding a generic provider.",
+        )
     async with async_session_maker() as session:
         p = Provider(
             id=data.id or shortuuid.uuid(),
@@ -717,8 +722,14 @@ async def update_provider(provider_id: str, data: ProviderUpdate, _: dict = Depe
         if not p:
             raise HTTPException(status_code=404, detail="Provider not found")
         update_data = data.model_dump(exclude_unset=True)
+        if update_data.get("provider_type", "").strip().lower() == "nvidia":
+            raise HTTPException(
+                status_code=400,
+                detail="NVIDIA Smart is a built-in provider. Configure it from Admin → NVIDIA Smart instead of editing a generic provider.",
+            )
         for key, value in update_data.items():
-            setattr(p, key, value)
+            if hasattr(p, key):
+                setattr(p, key, value)
         p.updated_at = datetime.utcnow()
         await session.commit()
         if data.models is not None:
