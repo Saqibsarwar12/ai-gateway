@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
+import BackendStatus from '@/components/BackendStatus';
 import { useEffect, useState, ReactNode } from 'react';
 
 const NAV: { href: string; label: string; glyph: string; adminOnly?: boolean }[] = [
@@ -121,7 +122,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
           </div>
           <span className="text-xs mono" style={{ color: 'var(--fg-2)' }}>{user?.role === 'admin' ? 'ADMIN' : 'USER'}</span>
         </div>
-        <div className="main-content">{children}</div>
+        <div className="main-content"><BackendStatus />{children}</div>
       </main>
     </div>
   );

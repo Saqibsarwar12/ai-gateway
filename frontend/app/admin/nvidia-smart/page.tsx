@@ -150,7 +150,7 @@ export default function NvidiaSmartPage() {
     try {
       const res = await fetch(`${API_BASE_URL}/admin/nvidia-smart/test`, { method: 'POST', headers });
       const data = await res.json();
-      setMessage(data.ok ? `All ${data.tested} enabled accounts responded.` : `NVIDIA test completed: ${data.tested || 0} tested.`);
+      setMessage(data.ok ? `All ${data.tested} enabled accounts responded.` : `NVIDIA test completed: ${data.tested || 0} tested. Check each account status for a sanitized upstream result.`);
       await load();
     } catch (e: any) {
       setMessage(e.message);

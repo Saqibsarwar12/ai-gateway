@@ -13,7 +13,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api-proxy';
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
   async function changePwd(e: React.FormEvent) {
     e.preventDefault();
