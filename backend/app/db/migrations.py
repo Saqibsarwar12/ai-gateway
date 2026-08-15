@@ -205,6 +205,11 @@ async def migrate_auth_schema() -> None:
                 await connection.execute(text(f'ALTER TABLE models ADD COLUMN "{column}" {definition}'))
         await connection.execute(text("UPDATE models SET model_id = COALESCE(model_id, id) WHERE model_id IS NULL OR model_id = ''"))
         await connection.execute(text("UPDATE models SET is_active = COALESCE(is_active, 1) WHERE is_active IS NULL"))
+        provider_columns = await connection.execute(text("PRAGMA table_info(providers)"))
+        provider_names = {row[1] for row in provider_columns.fetchall()}
+        if "provider_type" not in provider_names:
+            await connection.execute(text("ALTER TABLE providers ADD COLUMN provider_type VARCHAR(50) NOT NULL DEFAULT 'openai'"))
+        await connection.execute(text("UPDATE providers SET provider_type = COALESCE(provider_type, 'openai') WHERE provider_type IS NULL OR provider_type = ''"))
         await connection.execute(text("""CREATE TABLE IF NOT EXISTS verification_tokens (
             id VARCHAR(255) PRIMARY KEY,
             user_id VARCHAR(255) NOT NULL,
