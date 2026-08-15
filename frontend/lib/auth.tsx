@@ -77,7 +77,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const body = await res.json();
         detail = body.detail || detail;
       } catch {}
-      throw new Error(detail);
+      const error = new Error(detail) as Error & { needsVerification?: boolean };
+      error.needsVerification = res.headers.get('X-Needs-Verification') === 'true';
+      throw error;
     }
     const data = await res.json();
     const user: User = data.user;

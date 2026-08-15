@@ -19,23 +19,13 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/admin/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ identifier, password }),
-      });
-      if (!res.ok) {
-        const needsVerification = res.headers.get('X-Needs-Verification') === 'true';
-        const body = await res.json().catch(() => ({}));
-        if (needsVerification) {
-          router.push(`/verify-email?email=${encodeURIComponent(identifier.trim())}`);
-          return;
-        }
-        throw new Error(body.detail || 'Invalid credentials');
-      }
-      await login(identifier, password);
+      await login(identifier.trim(), password);
       router.push('/admin');
     } catch (err: any) {
+      if (err?.needsVerification) {
+        router.push(`/verify-email?email=${encodeURIComponent(identifier.trim())}`);
+        return;
+      }
       setError(err.message || 'Invalid credentials');
     } finally {
       setLoading(false);

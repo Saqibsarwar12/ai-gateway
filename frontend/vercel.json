@@ -4,6 +4,14 @@
   "installCommand": "npm install",
   "rewrites": [
     {
+      "source": "/admin/:path*",
+      "destination": "https://saki-gateway.indevs.in/admin/:path*"
+    },
+    {
+      "source": "/models",
+      "destination": "https://saki-gateway.indevs.in/models"
+    },
+    {
       "source": "/api-proxy/:path*",
       "destination": "https://saki-gateway.indevs.in/:path*"
     },
