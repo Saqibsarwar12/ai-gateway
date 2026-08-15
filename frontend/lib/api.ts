@@ -184,6 +184,20 @@ export type Provider = {
   updated_at: string;
 };
 
+export type NvidiaSmartProvider = Provider & {
+  id: '__nvidia_smart__';
+  name: string;
+  provider_type: 'nvidia_smart';
+  base_url: string;
+  extra_data: {
+    configured: boolean;
+    public_model_id: string;
+    display_name: string;
+    enabled: boolean;
+    enabled_account_count?: number;
+  };
+};
+
 export type AIModel = {
   id: string;
   name: string;

@@ -51,6 +51,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 from pydantic import BaseModel, EmailStr, Field
 from app.services.email import EmailDeliveryError, send_verification_email
+from app.services.nvidia_smart import get_snapshot
 from app.db import kv as rate_limit_kv
 from app.core.usernames import normalize_username, fallback_username, valid_username
 
@@ -616,13 +617,40 @@ def _personal_config_response(config: UserGatewayConfig, username: str) -> dict:
 async def list_providers(payload: dict = Depends(require_user)):
     """List providers. Admin sees everything; non-admins see ONLY the
     providers powering models they have access to (or empty list if none).
+    Admin also sees NVIDIA Smart as a pseudo-provider if configured.
     """
     if payload.get("role") != "admin":
         return []  # Hide raw provider config from regular users
+
+    # Load NVIDIA Smart config (read-only, separate from Provider table)
+    smart_config, smart_accounts = await get_snapshot(include_disabled=True)
+    smart_enabled_count = sum(1 for a in (smart_accounts or []) if a.enabled)
+
     async with async_session_maker() as session:
         result = await session.execute(select(Provider).order_by(Provider.priority))
         providers = result.scalars().all()
         out = []
+
+        # Inject NVIDIA Smart as a pseudo-provider entry
+        if smart_config:
+            smart_provider = ProviderResponse(
+                id="__nvidia_smart__",
+                name=smart_config.display_name or "NVIDIA Smart",
+                provider_type="nvidia_smart",
+                base_url="https://integrate.api.nvidia.com/v1",
+                api_key=None,
+                models=[smart_config.public_model_id],
+                is_active=smart_config.enabled,
+                priority=-1,  # sort last
+                extra_data={
+                    "public_model_id": smart_config.public_model_id,
+                    "account_count": len(smart_accounts or []),
+                    "enabled_account_count": smart_enabled_count,
+                    "is_nvidia_smart": True,
+                },
+            )
+            out.append(smart_provider)
+
         for p in providers:
             r = ProviderResponse.model_validate(p)
             if r.api_key:
@@ -1090,21 +1118,63 @@ async def get_logs(limit: int = 100, offset: int = 0, _: dict = Depends(require_
 
 # ─── Models (any logged-in user can READ) ───────────────────
 @router.get("/models")
-async def list_models(_: dict = Depends(require_user)):
+async def list_models(payload: dict = Depends(require_user)):
+    """List all models from DB + NVIDIA Smart public model.
+    NVIDIA Smart is shown as its own provider (id=__nvidia_smart__) so
+    the admin UI can filter by it and show the right badge.
+    """
+    # Load NVIDIA Smart snapshot (non-admin: only if enabled)
+    try:
+        smart_config, smart_accounts = await get_snapshot()
+        smart_enabled = bool(smart_config and smart_config.enabled)
+    except Exception:
+        smart_enabled = False
+        smart_config = None
+
     async with async_session_maker() as session:
         result = await session.execute(select(Model).where(Model.enabled == True))
         models = result.scalars().all()
-        return [
-            {
-                "id": m.id, "name": m.name, "provider_id": m.provider_id,
-                "mode": m.mode, "model_id": m.model_id,
+
+    out = []
+    seen_ids = set()
+
+    # Inject NVIDIA Smart public model
+    if smart_enabled and smart_config and smart_config.public_model_id:
+        public_id = smart_config.public_model_id
+        if public_id not in seen_ids:
+            seen_ids.add(public_id)
+            out.append({
+                "id": public_id,
+                "name": f"{smart_config.display_name} ({public_id})",
+                "provider_id": "__nvidia_smart__",
+                "mode": "chat",
+                "model_id": public_id,
+                "context_window": 128000,
+                "supports_functions": False,
+                "supports_vision": False,
+                "input_cost_per_1m": 0.0,
+                "output_cost_per_1m": 0.0,
+            })
+
+    # DB models
+    for m in models:
+        mid = m.model_id or m.id
+        if mid not in seen_ids:
+            seen_ids.add(mid)
+            out.append({
+                "id": m.id,
+                "name": m.name,
+                "provider_id": m.provider_id,
+                "mode": m.mode,
+                "model_id": m.model_id,
                 "context_window": m.context_window,
                 "supports_functions": m.supports_functions,
                 "supports_vision": m.supports_vision,
                 "input_cost_per_1m": m.input_cost_per_1m,
                 "output_cost_per_1m": m.output_cost_per_1m,
-            } for m in models
-        ]
+            })
+
+    return out
 
 
 # ─── Models write (admin only) ──────────────────────────────

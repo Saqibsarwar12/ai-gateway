@@ -160,21 +160,24 @@ export default function ProvidersPage() {
               <tbody>
                 {providers.map((p) => {
                   const t = testResults[p.id];
+                  const isNvidiaSmart = p.id === '__nvidia_smart__';
                   return (
-                    <tr key={p.id}>
+                    <tr key={p.id} style={isNvidiaSmart ? { opacity: 0.7 } : {}}>
                       <td>
                         <div style={{ fontWeight: 500, color: 'var(--fg-0)' }}>{p.name}</div>
                         <div className="mono text-xs dim">{p.id}</div>
                       </td>
                       <td>
-                        <Badge>{p.provider_type}</Badge>
+                        <Badge>{isNvidiaSmart ? 'nvidia_smart' : p.provider_type}</Badge>
                       </td>
                       <td className="mono text-xs wrap" style={{ maxWidth: '14rem', color: 'var(--fg-2)' }}>
-                        {p.base_url}
+                        {isNvidiaSmart ? 'managed via NVIDIA Smart page' : p.base_url}
                       </td>
                       <td className="mono text-xs">{(p.models || []).length}</td>
                       <td>
-                        {t ? (
+                        {isNvidiaSmart ? (
+                          <Badge variant="ok">● {(p as any).extra_data?.enabled_account_count || 0} accounts</Badge>
+                        ) : t ? (
                           t.ok ? (
                             <Badge variant="ok">● {t.latency_ms}ms</Badge>
                           ) : (
@@ -186,18 +189,26 @@ export default function ProvidersPage() {
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <div className="row" style={{ justifyContent: 'flex-end' }}>
-                          <Button size="sm" variant="ghost" onClick={() => testProvider(p.id)} disabled={testingId === p.id}>
-                            {testingId === p.id ? '…' : 'Test'}
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => syncModels(p.id)} disabled={syncingId === p.id}>
-                            {syncingId === p.id ? '…' : 'Sync'}
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setEditing(p)}>
-                            Edit
-                          </Button>
-                          <Button size="sm" variant="danger" onClick={() => deleteProvider(p.id)}>
-                            ×
-                          </Button>
+                          {isNvidiaSmart ? (
+                            <Button size="sm" variant="secondary" onClick={() => router.push('/admin/nvidia-smart')}>
+                              Configure →
+                            </Button>
+                          ) : (
+                            <>
+                              <Button size="sm" variant="ghost" onClick={() => testProvider(p.id)} disabled={testingId === p.id}>
+                                {testingId === p.id ? '…' : 'Test'}
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => syncModels(p.id)} disabled={syncingId === p.id}>
+                                {syncingId === p.id ? '…' : 'Sync'}
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => setEditing(p)}>
+                                Edit
+                              </Button>
+                              <Button size="sm" variant="danger" onClick={() => deleteProvider(p.id)}>
+                                ×
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
