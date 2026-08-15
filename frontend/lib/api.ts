@@ -79,6 +79,12 @@ export const apiListMyKeys = () => get<any[]>("/admin/api-keys");
 export const apiCreateMyKey = (data: { name: string; rate_limit_rpm?: number }) => post<any>("/admin/api-keys", data);
 export const apiDeleteMyKey = (id: string) => del("/admin/api-keys/" + id);
 
+// ─── Private prompts ─────────────────────────────────────────────────────
+export const apiListPrompts = () => get<CustomPrompt[]>('/admin/prompts');
+export const apiCreatePrompt = (data: PromptInput) => post<CustomPrompt>('/admin/prompts', data);
+export const apiUpdatePrompt = (id: string, data: PromptInput) => put<CustomPrompt>(`/admin/prompts/${id}`, data);
+export const apiDeletePrompt = (id: string) => del(`/admin/prompts/${id}`);
+
 // ─── Personal gateway ────────────────────────────────────────────────────
 export const apiGetGateway = () => get<any>('/admin/gateway/me');
 export const apiSaveGateway = (data: any) => put<any>('/admin/gateway/me', data);
@@ -256,6 +262,21 @@ export type User = {
   api_key?: string;
   created_at: string;
   tier?: string;
+};
+
+export type PromptInput = {
+  name: string;
+  model_pattern: string;
+  content: string;
+  preset: 'custom' | 'extreme_directness';
+  is_active: boolean;
+  is_default: boolean;
+};
+
+export type CustomPrompt = PromptInput & {
+  id: string;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 export type UserResponse = User;

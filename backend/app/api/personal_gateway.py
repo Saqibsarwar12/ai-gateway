@@ -11,6 +11,7 @@ from app.db.models import APIKey, Model, User, UserGatewayConfig
 from app.db.session import async_session_maker
 from app.models.schemas import ChatCompletionRequest
 from app.providers.adapters import make_adapter
+from app.services.prompts import load_user_prompt, combine_with_system_prompt
 
 
 USERNAME_SEGMENT = re.compile(r"^[a-z][a-z0-9-]{1,62}[a-z0-9]$")
@@ -108,13 +109,17 @@ async def list_personal_models(username: str, request: Request):
 
 @router.post("/chat/completions")
 async def personal_chat(username: str, req: ChatCompletionRequest, request: Request):
-    _, config = await _resolve_owned_config(username, request)
+    actor, config = await _resolve_owned_config(username, request)
     model = req.model or config.default_model
     adapter = _adapter(config)
     try:
+        messages = [message.model_dump() if hasattr(message, "model_dump") else message for message in req.messages]
+        async with async_session_maker() as session:
+            prompt = await load_user_prompt(session, actor["id"], model, req.prompt_id)
+        messages = combine_with_system_prompt(messages, prompt.content if prompt else None)
         return await adapter.chat(
             model,
-            [message.model_dump() if hasattr(message, "model_dump") else message for message in req.messages],
+            messages,
             temperature=req.temperature,
             max_tokens=req.max_tokens,
         )

@@ -24,6 +24,7 @@ class ChatCompletionRequest(BaseModel):
     frequency_penalty: Optional[float] = 0.0
     presence_penalty: Optional[float] = 0.0
     user: Optional[str] = None
+    prompt_id: Optional[str] = None
 
     class Config:
         extra = "allow"

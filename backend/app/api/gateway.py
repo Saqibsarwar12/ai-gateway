@@ -16,6 +16,7 @@ from sqlalchemy import select
 import shortuuid
 import time
 from app.routing.nvidia_smart import NvidiaSmartRouter, NvidiaUpstreamError
+from app.services.prompts import load_user_prompt, combine_with_system_prompt
 
 # Tier hierarchy: a v3 user can call v1, v2, v3
 TIER_ORDER = ["v1", "v2", "v3"]
@@ -165,6 +166,7 @@ def make_openai_router(version: str) -> APIRouter:
                 )
                 providers = result2.scalars().all()
 
+                selected_prompt = await load_user_prompt(session, actor["id"], req.model, req.prompt_id)
                 result3 = await session.execute(
                     select(Model).where(Model.enabled == True, Model.is_active == True)
                 )
@@ -188,9 +190,11 @@ def make_openai_router(version: str) -> APIRouter:
 
             if smart_config and smart_config.public_model_id == req.model:
                 smart_router = NvidiaSmartRouter(smart_config, smart_accounts, async_session_maker)
+                smart_messages = [m.model_dump() if hasattr(m, "model_dump") else m for m in req.messages]
+                smart_messages = combine_with_system_prompt(smart_messages, selected_prompt.content if selected_prompt else None)
                 result = await smart_router.chat(
                     req.model,
-                    [m.model_dump() if hasattr(m, "model_dump") else m for m in req.messages],
+                    smart_messages,
                     temperature=req.temperature,
                     max_tokens=req.max_tokens,
                     top_p=req.top_p,
@@ -201,6 +205,7 @@ def make_openai_router(version: str) -> APIRouter:
                 strategy = rule.strategy if rule else "fallback"
                 engine = RoutingEngine(provider_data, strategy)
                 messages = [m.model_dump() if hasattr(m, "model_dump") else m for m in req.messages]
+                messages = combine_with_system_prompt(messages, selected_prompt.content if selected_prompt else None)
                 result = await engine.chat(req.model, messages, temperature=req.temperature, max_tokens=req.max_tokens)
 
             latency_ms = int((time.time() - start) * 1000)

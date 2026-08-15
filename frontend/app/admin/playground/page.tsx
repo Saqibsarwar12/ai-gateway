@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth';
-import { API_BASE_URL } from '@/lib/api';
+import { API_BASE_URL, apiListPrompts } from '@/lib/api';
 import { Card, Loader, Select, Button, Badge, Textarea, Input } from '@/components/UI';
+import type { CustomPrompt } from '@/lib/api';
 
 type Msg = { role: 'user' | 'assistant' | 'system'; content: string };
 type OpenAIModel = { id: string; owned_by: string };
@@ -21,6 +22,8 @@ export default function PlaygroundPage() {
   const [models, setModels] = useState<OpenAIModel[]>([]);
   const [model, setModel] = useState('');
   const [system, setSystem] = useState('');
+  const [prompts, setPrompts] = useState<CustomPrompt[]>([]);
+  const [promptId, setPromptId] = useState('');
   const [temperature, setTemperature] = useState('0.7');
   const [maxTokens, setMaxTokens] = useState('1024');
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -39,6 +42,10 @@ export default function PlaygroundPage() {
         if (list.length) setModel(list[0].id);
       })
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    apiListPrompts().then(setPrompts).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -65,6 +72,7 @@ export default function PlaygroundPage() {
         body: JSON.stringify({
           model,
           messages: [...sysMsgs, ...next],
+          prompt_id: promptId || undefined,
           temperature: parseFloat(temperature),
           max_tokens: parseInt(maxTokens),
         }),
@@ -130,12 +138,28 @@ export default function PlaygroundPage() {
             onChange={setModel}
             options={models.length ? models.map((m) => ({ value: m.id, label: m.id })) : [{ value: '', label: 'No models — add a provider' }]}
           />
-          <Select
-            label="System prompt"
-            value={system}
-            onChange={setSystem}
-            options={SYSTEM_PRESETS}
-          />
+          <div className="stack" style={{ gap: '0.75rem' }}>
+            <Select
+              label="System prompt"
+              value={system}
+              onChange={setSystem}
+              options={SYSTEM_PRESETS}
+            />
+            <Select
+              label="Saved prompt"
+              value={promptId}
+              onChange={setPromptId}
+              options={[
+                { value: '', label: prompts.length ? 'Use account default' : 'No saved prompts' },
+                ...prompts.map((prompt) => ({
+                  value: prompt.id,
+                  label: `${prompt.name} · ${prompt.model_pattern}`,
+                })),
+              ]}
+              disabled={prompts.length === 0}
+              hint="Manage prompts from the Prompts section."
+            />
+          </div>
           <div className="grid-2">
             <Input label="Temperature" type="number" step="0.1" min="0" max="2" value={temperature} onChange={setTemperature} />
             <Input label="Max tokens" type="number" value={maxTokens} onChange={setMaxTokens} />

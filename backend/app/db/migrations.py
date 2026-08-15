@@ -172,6 +172,20 @@ async def migrate_auth_schema() -> None:
         if "last_attempt_at" not in pending_names:
             await d1_execute("ALTER TABLE pending_registrations ADD COLUMN last_attempt_at TEXT")
         await d1_execute("CREATE INDEX IF NOT EXISTS idx_pending_registrations_email ON pending_registrations(email)")
+        await d1_execute("""CREATE TABLE IF NOT EXISTS custom_prompts (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            model_pattern TEXT NOT NULL DEFAULT '*',
+            content TEXT NOT NULL,
+            preset TEXT NOT NULL DEFAULT 'custom',
+            is_active INTEGER DEFAULT 1,
+            is_default INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        await d1_execute("CREATE INDEX IF NOT EXISTS idx_custom_prompts_user ON custom_prompts(user_id)")
+        await d1_execute("CREATE INDEX IF NOT EXISTS idx_custom_prompts_user_model ON custom_prompts(user_id, model_pattern)")
         await d1_execute("CREATE TABLE IF NOT EXISTS auth_migrations (migration_key TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
         return
 
@@ -245,6 +259,20 @@ async def migrate_auth_schema() -> None:
             if column not in pending_names:
                 await connection.execute(text(f'ALTER TABLE pending_registrations ADD COLUMN "{column}" {definition}'))
         await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_pending_registrations_email ON pending_registrations(email)"))
+        await connection.execute(text("""CREATE TABLE IF NOT EXISTS custom_prompts (
+            id VARCHAR(255) PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            name VARCHAR(120) NOT NULL,
+            model_pattern VARCHAR(255) NOT NULL DEFAULT '*',
+            content TEXT NOT NULL,
+            preset VARCHAR(32) NOT NULL DEFAULT 'custom',
+            is_active BOOLEAN DEFAULT 1,
+            is_default BOOLEAN DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL
+        )"""))
+        await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_custom_prompts_user ON custom_prompts(user_id)"))
+        await connection.execute(text("CREATE INDEX IF NOT EXISTS idx_custom_prompts_user_model ON custom_prompts(user_id, model_pattern)"))
         await connection.execute(text("""CREATE TABLE IF NOT EXISTS user_gateway_configs (
             id VARCHAR(255) PRIMARY KEY,
             user_id VARCHAR(255) NOT NULL,

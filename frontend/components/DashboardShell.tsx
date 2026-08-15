@@ -13,6 +13,7 @@ const NAV: { href: string; label: string; glyph: string; adminOnly?: boolean }[]
   { href: '/admin/nvidia-smart', label: 'NVIDIA Smart', glyph: 'N', adminOnly: true },
   { href: '/admin/routing', label: 'Routing', glyph: '↯', adminOnly: true },
   { href: '/admin/models', label: 'Models', glyph: '◎' },
+  { href: '/admin/prompts', label: 'Prompts', glyph: '⌘' },
   { href: '/admin/playground', label: 'Playground', glyph: '✦' },
   { href: '/admin/logs', label: 'Request Logs', glyph: '≡' },
   { href: '/admin/analytics', label: 'Analytics', glyph: '◓' },

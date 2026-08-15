@@ -120,6 +120,26 @@ class PendingRegistration(Base):
     created_at = Column(DateTime, nullable=False)
 
 
+class CustomPrompt(Base):
+    __tablename__ = "custom_prompts"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    model_pattern = Column(String, nullable=False, default="*")
+    content = Column(Text, nullable=False)
+    preset = Column(String, nullable=False, default="custom")
+    is_active = Column(Boolean, default=True)
+    is_default = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_custom_prompts_user", "user_id"),
+        Index("idx_custom_prompts_user_model", "user_id", "model_pattern"),
+    )
+
+
 class APIKey(Base):
     __tablename__ = "api_keys"
 

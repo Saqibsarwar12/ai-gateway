@@ -31,7 +31,7 @@ import time
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Header, Request, Response
 from sqlalchemy import select, func
 from app.db.session import async_session_maker
-from app.db.models import Provider, RoutingRule, User, Model, RequestLog, UsageStats, APIKey, VerificationToken, PendingRegistration, UserGatewayConfig, NvidiaSmartConfig, NvidiaSmartAccount
+from app.db.models import Provider, RoutingRule, User, Model, RequestLog, UsageStats, APIKey, VerificationToken, PendingRegistration, UserGatewayConfig, NvidiaSmartConfig, NvidiaSmartAccount, CustomPrompt
 from app.models.schemas import (
     ProviderCreate, ProviderUpdate, ProviderResponse,
     RoutingRuleCreate, RoutingRuleUpdate, RoutingRuleResponse,
@@ -54,6 +54,7 @@ from app.services.email import EmailDeliveryError, send_verification_email
 from app.services.nvidia_smart import get_snapshot
 from app.db import kv as rate_limit_kv
 from app.core.usernames import normalize_username, fallback_username, valid_username
+from app.services.prompts import normalize_prompt_name, normalize_model_pattern, resolve_prompt_content, prompt_response
 
 router = APIRouter()
 
@@ -610,6 +611,94 @@ def _personal_config_response(config: UserGatewayConfig, username: str) -> dict:
         "has_api_key": True,
         "updated_at": config.updated_at.isoformat() if config.updated_at else None,
     }
+
+
+# ─── Private custom prompts (each account manages its own) ─────────────
+class PromptBody(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    model_pattern: str = Field(default="*", min_length=1, max_length=255)
+    content: str = Field(default="", max_length=12000)
+    preset: str = Field(default="custom", max_length=32)
+    is_active: bool = True
+    is_default: bool = False
+
+
+@router.get("/prompts")
+async def list_my_prompts(payload: dict = Depends(require_user)):
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(CustomPrompt)
+            .where(CustomPrompt.user_id == payload["sub"])
+            .order_by(CustomPrompt.updated_at.desc(), CustomPrompt.created_at.desc())
+        )
+        return [prompt_response(prompt) for prompt in result.scalars().all()]
+
+
+@router.post("/prompts")
+async def create_my_prompt(body: PromptBody, payload: dict = Depends(require_user)):
+    preset = (body.preset or "custom").strip().lower()
+    if preset not in {"custom", "extreme_directness"}:
+        raise HTTPException(status_code=400, detail="Unsupported prompt preset")
+    name = normalize_prompt_name(body.name)
+    model_pattern = normalize_model_pattern(body.model_pattern)
+    content = resolve_prompt_content(preset, body.content)
+    async with async_session_maker() as session:
+        existing_prompts = await session.execute(
+            select(CustomPrompt).where(CustomPrompt.user_id == payload["sub"])
+        )
+        existing_prompt_rows = existing_prompts.scalars().all()
+        if len(existing_prompt_rows) >= 50:
+            raise HTTPException(status_code=409, detail="Prompt limit reached")
+        if body.is_default:
+            for prompt in existing_prompt_rows:
+                prompt.is_default = False
+        now = datetime.utcnow()
+        prompt = CustomPrompt(
+            id=shortuuid.uuid(), user_id=payload["sub"], name=name,
+            model_pattern=model_pattern, content=content, preset=preset,
+            is_active=body.is_active, is_default=body.is_default,
+            created_at=now, updated_at=now,
+        )
+        session.add(prompt)
+        await session.commit()
+        return prompt_response(prompt)
+
+
+@router.put("/prompts/{prompt_id}")
+async def update_my_prompt(prompt_id: str, body: PromptBody, payload: dict = Depends(require_user)):
+    preset = (body.preset or "custom").strip().lower()
+    if preset not in {"custom", "extreme_directness"}:
+        raise HTTPException(status_code=400, detail="Unsupported prompt preset")
+    async with async_session_maker() as session:
+        result = await session.execute(select(CustomPrompt).where(CustomPrompt.id == prompt_id, CustomPrompt.user_id == payload["sub"]))
+        prompt = result.scalar_one_or_none()
+        if not prompt:
+            raise HTTPException(status_code=404, detail="Prompt not found")
+        if body.is_default:
+            existing = await session.execute(select(CustomPrompt).where(CustomPrompt.user_id == payload["sub"], CustomPrompt.id != prompt_id))
+            for other in existing.scalars().all():
+                other.is_default = False
+        prompt.name = normalize_prompt_name(body.name)
+        prompt.model_pattern = normalize_model_pattern(body.model_pattern)
+        prompt.content = resolve_prompt_content(preset, body.content)
+        prompt.preset = preset
+        prompt.is_active = body.is_active
+        prompt.is_default = body.is_default
+        prompt.updated_at = datetime.utcnow()
+        await session.commit()
+        return prompt_response(prompt)
+
+
+@router.delete("/prompts/{prompt_id}")
+async def delete_my_prompt(prompt_id: str, payload: dict = Depends(require_user)):
+    async with async_session_maker() as session:
+        result = await session.execute(select(CustomPrompt).where(CustomPrompt.id == prompt_id, CustomPrompt.user_id == payload["sub"]))
+        prompt = result.scalar_one_or_none()
+        if not prompt:
+            raise HTTPException(status_code=404, detail="Prompt not found")
+        await session.delete(prompt)
+        await session.commit()
+        return {"deleted": True}
 
 
 # ─── Providers (admin only — non-admins see nothing) ────────
