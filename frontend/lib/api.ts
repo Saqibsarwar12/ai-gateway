@@ -1,5 +1,5 @@
 // Live API client for AI Gateway backend
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api-proxy';
 const TOKEN_KEY = 'ai_gateway_token';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
