@@ -1,19 +1,20 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button, Input, Spinner } from '@/components/UI';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
 export default function SignupPage() {
+  const router = useRouter();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [submittedEmail, setSubmittedEmail] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -38,25 +39,12 @@ export default function SignupPage() {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || 'Registration failed');
       }
-      setSubmittedEmail(email.trim().toLowerCase());
+      router.push(`/verify-email?email=${encodeURIComponent(email.trim().toLowerCase())}`);
     } catch (err: any) {
       setError(err.message || 'Registration failed');
     } finally {
       setLoading(false);
     }
-  }
-
-  if (submittedEmail) {
-    return (
-      <div className="min-h-screen bg-[#0a0908] text-[#f5f1e8] flex items-center justify-center p-6">
-        <div className="w-full max-w-md border border-[#1c1c1a] bg-[#13110f] p-8 rounded-sm">
-          <div className="font-mono text-[10px] text-[#d4a574] tracking-[0.4em] uppercase">Check your inbox</div>
-          <h1 className="mt-3 font-serif text-3xl italic">Verify your email.</h1>
-          <p className="mt-3 text-sm text-[#8a8275] leading-relaxed">We sent a 6-digit verification code to {submittedEmail}. Your account stays inactive until you enter it.</p>
-          <Link href="/login" className="mt-6 inline-block font-mono text-xs text-[#d4a574] uppercase tracking-wider">Return to sign in →</Link>
-        </div>
-      </div>
-    );
   }
 
   return (
