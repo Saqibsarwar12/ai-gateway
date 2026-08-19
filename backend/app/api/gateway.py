@@ -15,6 +15,7 @@ from app.core.config import settings
 from sqlalchemy import select
 import shortuuid
 import time
+import json
 from app.routing.nvidia_smart import NvidiaSmartRouter, NvidiaUpstreamError
 from app.services.prompts import load_user_prompt, combine_with_system_prompt
 
@@ -188,7 +189,25 @@ def make_openai_router(version: str) -> APIRouter:
                     for p in providers
                 ]
 
-            if smart_config and smart_config.public_model_id == req.model:
+            # Route through NVIDIA Smart when the active routing rule points at it and no
+            # enabled regular provider covers the requested model (or the caller asked
+            # for "auto"/the smart model explicitly). Keeps the gateway usable when all
+            # regular providers are disabled.
+            use_smart = bool(smart_config and smart_config.enabled)
+            if use_smart and req.model != smart_config.public_model_id:
+                rule_order = []
+                if rule:
+                    try:
+                        rule_order = json.loads(rule.provider_order or "[]")
+                    except Exception:
+                        rule_order = []
+                smart_in_rule = "__nvidia_smart__" in rule_order or not rule
+                covered = any(
+                    (not (p.get("models") or [])) or req.model in (p.get("models") or [])
+                    for p in provider_data
+                )
+                use_smart = smart_in_rule and (not covered or req.model == "auto")
+            if use_smart:
                 smart_router = NvidiaSmartRouter(smart_config, smart_accounts, async_session_maker)
                 smart_messages = [m.model_dump() if hasattr(m, "model_dump") else m for m in req.messages]
                 smart_messages = combine_with_system_prompt(smart_messages, selected_prompt.content if selected_prompt else None)
@@ -214,7 +233,7 @@ def make_openai_router(version: str) -> APIRouter:
                 log = RequestLog(
                     id=log_id,
                     user_id=actor["id"],
-                    provider=(req.model if smart_config and smart_config.public_model_id == req.model else engine.last_provider),
+                    provider=(smart_config.public_model_id if use_smart else engine.last_provider),
                     model=req.model,
                     input_tokens=result.get("usage", {}).get("prompt_tokens", 0),
                     output_tokens=result.get("usage", {}).get("completion_tokens", 0),
