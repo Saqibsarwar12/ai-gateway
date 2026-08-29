@@ -183,7 +183,31 @@ class NvidiaSmartRouter:
         try:
             api_key = decrypt_gateway_secret(account.encrypted_api_key)
         except Exception as exc:
-            raise NvidiaUpstreamError(500, "credential_unavailable") from exc
+            # The stored key was encrypted with a secret that has since rotated
+            # (PERSONAL_GATEWAY_ENCRYPTION_KEY / SECRET_KEY). The account's
+            # stored state can't recover, so let the dashboard know clearly.
+            async def _flag_undecryptable():
+                try:
+                    from app.db import session as db_session
+                    async with db_session.async_session_maker() as session:
+                        from app.db.models import NvidiaSmartAccount as _NSA
+                        result = await session.execute(
+                            select(_NSA).where(_NSA.id == account.id)
+                        )
+                        stored = result.scalars().first()
+                        if stored:
+                            stored.status = "undecryptable"
+                            stored.last_status_code = 500
+                            stored.last_error_code = "credential_unavailable"
+                            stored.last_error_at = datetime.utcnow()
+                            await session.commit()
+                except Exception:
+                    pass
+            try:
+                await _flag_undecryptable()
+            except Exception:
+                pass
+            raise NvidiaUpstreamError(503, "credential_unavailable") from exc
         body = {"model": account.model_id, "messages": messages}
         body.update({key: value for key, value in kwargs.items() if value is not None})
         try:
