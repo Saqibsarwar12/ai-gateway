@@ -8,9 +8,9 @@ from sqlalchemy import select
 from app.core.auth import decode_token, decrypt_gateway_secret
 from app.core.config import settings
 from app.db.models import APIKey, Model, User, UserGatewayConfig
-from app.db.session import async_session_maker
+from app.db import session as db_session
 from app.models.schemas import ChatCompletionRequest
-from app.providers.adapters import make_adapter
+from app.providers.adapters import make_adapter, UpstreamError
 from app.services.prompts import load_user_prompt, combine_with_system_prompt
 
 
@@ -29,7 +29,7 @@ async def _authenticate(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Missing API key or bearer token")
 
     payload = decode_token(token, settings.SECRET_KEY)
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         if payload and payload.get("sub"):
             result = await session.execute(select(User).where(User.id == payload["sub"]))
             user = result.scalar_one_or_none()
@@ -53,7 +53,7 @@ async def _resolve_owned_config(username: str, request: Request) -> tuple[dict, 
     if not _valid_username(username):
         raise HTTPException(status_code=404, detail="Personal gateway not found")
     actor = await _authenticate(request)
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         user_result = await session.execute(select(User).where(User.username == username, User.is_active == True))
         target = user_result.scalar_one_or_none()
         if not target:
@@ -114,7 +114,7 @@ async def personal_chat(username: str, req: ChatCompletionRequest, request: Requ
     adapter = _adapter(config)
     try:
         messages = [message.model_dump() if hasattr(message, "model_dump") else message for message in req.messages]
-        async with async_session_maker() as session:
+        async with db_session.async_session_maker() as session:
             prompt = await load_user_prompt(session, actor["id"], model, req.prompt_id)
         messages = combine_with_system_prompt(messages, prompt.content if prompt else None)
         return await adapter.chat(
@@ -125,6 +125,29 @@ async def personal_chat(username: str, req: ChatCompletionRequest, request: Requ
         )
     except HTTPException:
         raise
+    except UpstreamError as exc:
+        # Surface the REAL cause (bad provider key / unknown model / rate
+        # limit) instead of a blanket 502.
+        if exc.status_code in (401, 403):
+            status, code = 401, "provider_auth_error"
+            msg = f"Provider rejected the configured API key ({exc.code}). Update it in your personal gateway settings. Details: {exc.message or 'unauthorized'}"
+        elif exc.status_code == 404 or "model" in (exc.code or ""):
+            status, code = 404, "model_not_found"
+            msg = f"Model is not served by your personal provider. Details: {exc.message or exc.code}"
+        elif exc.status_code == 429:
+            status, code = 429, "provider_rate_limited"
+            msg = f"Provider is rate limited. {exc.message or 'Try again shortly.'}"
+        else:
+            status, code = 502, "provider_request_failed"
+            msg = f"Personal provider request failed ({exc.code}). {exc.message or ''}".strip()
+        raise HTTPException(status_code=status, detail={
+            "error": {
+                "message": msg,
+                "type": "upstream_error",
+                "code": code,
+                "upstream_code": exc.code,
+            }
+        }) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail={
             "error": {

@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.core.auth import decrypt_gateway_secret, encrypt_gateway_secret
 from app.db.models import NvidiaSmartAccount, NvidiaSmartConfig
-from app.db.session import async_session_maker
+from app.db import session as db_session
 
 NVIDIA_DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
@@ -85,7 +85,7 @@ async def get_snapshot(include_disabled: bool = False) -> tuple[NvidiaSmartConfi
             config, accounts = _snapshot[1], _snapshot[2]
             if include_disabled or (config and config.enabled):
                 return config, accounts
-        async with async_session_maker() as session:
+        async with db_session.async_session_maker() as session:
             result = await session.execute(select(NvidiaSmartConfig).where(NvidiaSmartConfig.id == NVIDIA_CONFIG_ID))
             config = result.scalar_one_or_none()
             accounts: list[NvidiaSmartAccount] = []
@@ -104,7 +104,7 @@ async def get_snapshot(include_disabled: bool = False) -> tuple[NvidiaSmartConfi
 
 async def _persist_test_state(account: NvidiaSmartAccount, ok: bool, status_code: int | None, error: str | None) -> None:
     now = datetime.utcnow()
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(NvidiaSmartAccount).where(NvidiaSmartAccount.id == account.id))
         stored = result.scalar_one_or_none()
         if not stored:

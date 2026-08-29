@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.core.auth import encrypt_gateway_secret
 from app.db.models import NvidiaSmartAccount, NvidiaSmartConfig
-from app.db.session import async_session_maker
+from app.db import session as db_session
 from app.services.nvidia_smart import (
     MAX_ACCOUNTS,
     NVIDIA_DEFAULT_BASE_URL,
@@ -56,7 +56,7 @@ async def get_nvidia_smart(_: dict = Depends(require_admin)):
 @router.put("/admin/nvidia-smart/config")
 async def save_nvidia_smart_config(body: SmartConfigBody, _: dict = Depends(require_admin)):
     public_model_id = body.public_model_id.strip().lower()
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         config = await _load_admin_config(session)
         if not config:
             config = NvidiaSmartConfig(
@@ -93,7 +93,7 @@ async def save_nvidia_smart_config(body: SmartConfigBody, _: dict = Depends(requ
 async def add_nvidia_account(body: SmartAccountBody, _: dict = Depends(require_admin)):
     if not body.api_key or not body.api_key.strip():
         raise HTTPException(status_code=400, detail="NVIDIA API key is required")
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         config = await _load_admin_config(session)
         now = datetime.utcnow()
         if not config:
@@ -130,7 +130,7 @@ async def add_nvidia_account(body: SmartAccountBody, _: dict = Depends(require_a
 
 @router.put("/admin/nvidia-smart/accounts/{account_id}")
 async def update_nvidia_account(account_id: str, body: SmartAccountBody, _: dict = Depends(require_admin)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(NvidiaSmartAccount).where(NvidiaSmartAccount.id == account_id))
         account = result.scalar_one_or_none()
         if not account:
@@ -152,7 +152,7 @@ async def update_nvidia_account(account_id: str, body: SmartAccountBody, _: dict
 
 @router.delete("/admin/nvidia-smart/accounts/{account_id}")
 async def delete_nvidia_account(account_id: str, _: dict = Depends(require_admin)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(NvidiaSmartAccount).where(NvidiaSmartAccount.id == account_id))
         account = result.scalar_one_or_none()
         if not account:

@@ -5,7 +5,9 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.db.cloudflare import execute as d1_execute, fetchall as d1_fetchall
-from app.db.session import USE_D1, engine
+from app.db import session as db_session
+
+USE_D1 = db_session.USE_D1
 
 
 async def _d1_table_exists(name: str) -> bool:
@@ -189,7 +191,7 @@ async def migrate_auth_schema() -> None:
         await d1_execute("CREATE TABLE IF NOT EXISTS auth_migrations (migration_key TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
         return
 
-    async with engine.begin() as connection:
+    async with db_session.engine.begin() as connection:
         columns = await connection.execute(text("PRAGMA table_info(users)"))
         names = {row[1] for row in columns.fetchall()}
         if "email_verified_at" not in names:
@@ -364,7 +366,7 @@ async def cleanup_legacy_users() -> dict:
         await d1_execute("INSERT INTO auth_migrations (migration_key, applied_at) VALUES (?, CURRENT_TIMESTAMP)", [migration_key])
         return {"admin_id": admin_id, "deleted_non_admins": True}
 
-    async with engine.begin() as connection:
+    async with db_session.engine.begin() as connection:
         await connection.execute(text("CREATE TABLE IF NOT EXISTS auth_migrations (migration_key VARCHAR(255) PRIMARY KEY, applied_at DATETIME NOT NULL)"))
         marker = await connection.execute(text("SELECT migration_key FROM auth_migrations WHERE migration_key = :key"), {"key": migration_key})
         if marker.first():
@@ -406,7 +408,7 @@ async def cleanup_generic_nvidia_providers() -> dict:
             await d1_execute(f"DELETE FROM providers WHERE id IN ({placeholders})", provider_ids)
         return {"deleted_providers": len(provider_ids)}
 
-    async with engine.begin() as connection:
+    async with db_session.engine.begin() as connection:
         rows = await connection.execute(text("SELECT id FROM providers WHERE lower(provider_type) = 'nvidia'"))
         provider_ids = [row[0] for row in rows.fetchall()]
         for provider_id in provider_ids:

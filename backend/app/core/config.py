@@ -23,8 +23,8 @@ class Settings:
     VERIFICATION_TOKEN_HOURS = int(os.getenv("VERIFICATION_TOKEN_HOURS", "24"))
     VERIFICATION_CODE_MINUTES = int(os.getenv("VERIFICATION_CODE_MINUTES", "15"))
     VERIFICATION_CODE_MAX_ATTEMPTS = int(os.getenv("VERIFICATION_CODE_MAX_ATTEMPTS", "5"))
-    AUTH_RATE_LIMIT_WINDOW_SECONDS = 300
-    AUTH_RATE_LIMIT_MAX_ATTEMPTS = 5
+    AUTH_RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("AUTH_RATE_LIMIT_WINDOW_SECONDS", "300"))
+    AUTH_RATE_LIMIT_MAX_ATTEMPTS = int(os.getenv("AUTH_RATE_LIMIT_MAX_ATTEMPTS", "5"))
     PERSONAL_GATEWAY_MAX_CONFIGS = int(os.getenv("PERSONAL_GATEWAY_MAX_CONFIGS", "5"))
     PERSONAL_GATEWAY_ENCRYPTION_KEY = os.getenv("PERSONAL_GATEWAY_ENCRYPTION_KEY", "")
     CF_KV_NAMESPACE_ID = os.getenv("CF_KV_NAMESPACE_ID", "")
@@ -43,6 +43,33 @@ class Settings:
         "v2": 500,
         "v3": 2000,
     }
+
+    @classmethod
+    def refresh_from_env(cls) -> None:
+        """Re-read every env-derived field from os.environ.
+
+        The singleton is created at first import, so modules that override
+        env vars AFTER import (e.g. tests that run after other tests) must
+        call this to make the cached `settings` reflect the new values.
+        """
+        cls.DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+        cls.ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@example.com")
+        cls.ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+        cls.SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
+        cls.DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./ai_gateway.db")
+        cls.USE_SQLITE = os.getenv("USE_SQLITE", "false").lower() == "true"
+        cls.APP_BASE_URL = os.getenv("APP_BASE_URL", "https://saki-gateway.indevs.in").rstrip("/")
+        cls.FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "https://ai-gateway-frontend.onrender.com").rstrip("/")
+        cls.BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
+        cls.EMAIL_FROM = os.getenv("EMAIL_FROM", "")
+        cls.EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "Saki Gateway")
+        cls.VERIFICATION_TOKEN_HOURS = int(os.getenv("VERIFICATION_TOKEN_HOURS", "24"))
+        cls.VERIFICATION_CODE_MINUTES = int(os.getenv("VERIFICATION_CODE_MINUTES", "15"))
+        cls.VERIFICATION_CODE_MAX_ATTEMPTS = int(os.getenv("VERIFICATION_CODE_MAX_ATTEMPTS", "5"))
+        cls.AUTH_RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("AUTH_RATE_LIMIT_WINDOW_SECONDS", "300"))
+        cls.AUTH_RATE_LIMIT_MAX_ATTEMPTS = int(os.getenv("AUTH_RATE_LIMIT_MAX_ATTEMPTS", "5"))
+        cls.CF_KV_NAMESPACE_ID = os.getenv("CF_KV_NAMESPACE_ID", "")
+        cls.PUBLIC_GATEWAY_BASE_URL = os.getenv("PUBLIC_GATEWAY_BASE_URL", "https://saki-gateway.indevs.in")
 
 
 settings = Settings()

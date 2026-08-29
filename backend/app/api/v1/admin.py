@@ -30,7 +30,7 @@ import time
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Header, Request, Response
 from sqlalchemy import select, func
-from app.db.session import async_session_maker
+from app.db import session as db_session
 from app.db.models import Provider, RoutingRule, User, Model, RequestLog, UsageStats, APIKey, VerificationToken, PendingRegistration, UserGatewayConfig, NvidiaSmartConfig, NvidiaSmartAccount, CustomPrompt
 from app.models.schemas import (
     ProviderCreate, ProviderUpdate, ProviderResponse,
@@ -89,7 +89,7 @@ async def require_user(
     """Any logged-in user (must be email-verified for non-admins)."""
     payload = await _decode_bearer(authorization, session_cookie)
     user_id = payload.get("sub")
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
         if not user:
@@ -106,7 +106,7 @@ async def require_admin(
     """Admin role required (admins bypass email verification check)."""
     payload = await _decode_bearer(authorization, session_cookie)
     user_id = payload.get("sub")
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
         if not user or not user.is_active:
@@ -143,8 +143,8 @@ async def _record_verify_failure(email: str) -> None:
 
 # ─── Global login rate limit (KV-backed, per-IP) ─────────────────
 async def _check_login_rate_limit(ip: str) -> None:
-    window = 60 * 5
-    max_attempts = 10
+    window = settings.AUTH_RATE_LIMIT_WINDOW_SECONDS
+    max_attempts = settings.AUTH_RATE_LIMIT_MAX_ATTEMPTS
     key = f"auth:login:{ip}"
     allowed, _ = await rate_limit_kv.check_rate_limit(key, window, max_attempts)
     if not allowed:
@@ -209,7 +209,7 @@ async def login(body: LoginBody, request: Request, response: Response = None):
         raise HTTPException(status_code=400, detail="Missing identifier or password")
 
     lookup_started = time.perf_counter()
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         lookup_identifier = identifier.lower()
         result = await session.execute(
             select(User).where(
@@ -295,7 +295,7 @@ async def register(body: RegisterBody, request: Request):
         raise HTTPException(status_code=409, detail="This email address cannot be registered")
 
     lookup_started = time.perf_counter()
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         # Check for existing verified user
         existing = await session.execute(
             select(User).where(
@@ -394,7 +394,7 @@ async def verify_code(body: VerifyCodeBody, response: Response = None):
     # Per-email rate limit — blocks before DB lookup
     await _check_verify_rate_limit(email)
 
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(PendingRegistration).where(PendingRegistration.email == email))
         pending = result.scalar_one_or_none()
 
@@ -479,7 +479,7 @@ async def verify_email(token: str, response: Response = None):
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     now = datetime.utcnow()
 
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(
             select(PendingRegistration).where(PendingRegistration.verification_link_hash == token_hash)
         )
@@ -539,6 +539,86 @@ async def logout(response: Response):
     response.delete_cookie(settings.SESSION_COOKIE_NAME, path="/")
     return {"logged_out": True}
 
+# ─── Resend verification email ─────────────────────────────────────────────
+async def _check_resend_rate_limit(email: str) -> None:
+    """Block resend if more than RESEND_MAX_PER_EMAIL per hour."""
+    window = 3600
+    max_resends = getattr(settings, 'RESEND_MAX_PER_EMAIL', 3)
+    key = f"auth:resend:{email.lower()}"
+    allowed, _ = await rate_limit_kv.check_rate_limit(key, window, max_resends)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many resend requests. Please wait before trying again.",
+        )
+
+class ResendBody(BaseModel):
+    email: EmailStr
+
+@router.post("/auth/resend-verification")
+async def resend_verification(body: ResendBody, request: Request):
+    """Resend the verification code/link to an existing pending registration.
+
+    Fails safely if:
+    - No pending registration exists (400: no account awaiting verification)
+    - Already fully registered (409: account already active)
+    - Rate limit exceeded (429)
+    - Email delivery fails (503)
+    """
+    await _check_resend_rate_limit(body.email.strip().lower())
+    await rate_limit_kv.record_attempt(f"auth:resend:{body.email.strip().lower()}", 3600)
+
+    email = body.email.strip().lower()
+    now = datetime.utcnow()
+
+    async with db_session.async_session_maker() as session:
+        result = await session.execute(
+            select(PendingRegistration).where(PendingRegistration.email == email)
+        )
+        pending = result.scalar_one_or_none()
+
+        if pending:
+            if pending.expires_at < now:
+                await session.delete(pending)
+                await session.commit()
+                raise HTTPException(
+                    status_code=400,
+                    detail="Verification code expired. Please sign up again to get a new code.",
+                )
+            raw_code = f"{secrets.randbelow(1000000):06d}"
+            raw_link_token = secrets.token_urlsafe(32)
+            verification_url = f"{settings.FRONTEND_BASE_URL}/verify-email?token={raw_link_token}"
+            pending.token_hash = hashlib.sha256(raw_code.encode()).hexdigest()
+            pending.verification_link_hash = hashlib.sha256(raw_link_token.encode()).hexdigest()
+            pending.expires_at = now + timedelta(minutes=settings.VERIFICATION_CODE_MINUTES)
+            await session.commit()
+            try:
+                await send_verification_email(email, raw_code, verification_url)
+            except EmailDeliveryError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Could not resend verification email: {exc}",
+                )
+            return {
+                "status": "verification_required",
+                "email": email,
+                "message": "A new verification code has been sent to your email.",
+            }
+
+        existing_user = await session.execute(
+            select(User).where(func.lower(User.email) == email.lower())
+        )
+        if existing_user.scalar_one_or_none():
+            raise HTTPException(
+                status_code=409,
+                detail="This email is already registered. Sign in instead.",
+            )
+
+        raise HTTPException(
+            status_code=400,
+            detail="No account awaiting verification for this email. Please sign up first.",
+        )
+
 
 @router.get("/auth/me")
 async def me(payload: dict = Depends(require_user)):
@@ -549,7 +629,7 @@ async def me(payload: dict = Depends(require_user)):
     or rotation time.
     """
     is_admin = payload.get("role") == "admin"
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(User).where(User.id == payload["sub"]))
         u = result.scalar_one_or_none()
         if not u:
@@ -575,7 +655,7 @@ class PasswordChangeBody(BaseModel):
 @router.post("/auth/change-password")
 async def change_password(body: PasswordChangeBody, payload: dict = Depends(require_user)):
     """Change the current user's password."""
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(User).where(User.id == payload["sub"]))
         u = result.scalar_one_or_none()
         if not u or not verify_password(body.current_password, u.hashed_password or ""):
@@ -625,7 +705,7 @@ class PromptBody(BaseModel):
 
 @router.get("/prompts")
 async def list_my_prompts(payload: dict = Depends(require_user)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(
             select(CustomPrompt)
             .where(CustomPrompt.user_id == payload["sub"])
@@ -637,12 +717,12 @@ async def list_my_prompts(payload: dict = Depends(require_user)):
 @router.post("/prompts")
 async def create_my_prompt(body: PromptBody, payload: dict = Depends(require_user)):
     preset = (body.preset or "custom").strip().lower()
-    if preset not in {"custom", "extreme_directness"}:
+    if preset not in {"custom", "extreme_directness", "uncensored_extreme"}:
         raise HTTPException(status_code=400, detail="Unsupported prompt preset")
     name = normalize_prompt_name(body.name)
     model_pattern = normalize_model_pattern(body.model_pattern)
     content = resolve_prompt_content(preset, body.content)
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         existing_prompts = await session.execute(
             select(CustomPrompt).where(CustomPrompt.user_id == payload["sub"])
         )
@@ -667,9 +747,9 @@ async def create_my_prompt(body: PromptBody, payload: dict = Depends(require_use
 @router.put("/prompts/{prompt_id}")
 async def update_my_prompt(prompt_id: str, body: PromptBody, payload: dict = Depends(require_user)):
     preset = (body.preset or "custom").strip().lower()
-    if preset not in {"custom", "extreme_directness"}:
+    if preset not in {"custom", "extreme_directness", "uncensored_extreme"}:
         raise HTTPException(status_code=400, detail="Unsupported prompt preset")
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(CustomPrompt).where(CustomPrompt.id == prompt_id, CustomPrompt.user_id == payload["sub"]))
         prompt = result.scalar_one_or_none()
         if not prompt:
@@ -691,7 +771,7 @@ async def update_my_prompt(prompt_id: str, body: PromptBody, payload: dict = Dep
 
 @router.delete("/prompts/{prompt_id}")
 async def delete_my_prompt(prompt_id: str, payload: dict = Depends(require_user)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(CustomPrompt).where(CustomPrompt.id == prompt_id, CustomPrompt.user_id == payload["sub"]))
         prompt = result.scalar_one_or_none()
         if not prompt:
@@ -715,7 +795,7 @@ async def list_providers(payload: dict = Depends(require_user)):
     smart_config, smart_accounts = await get_snapshot(include_disabled=True)
     smart_enabled_count = sum(1 for a in (smart_accounts or []) if a.enabled)
 
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(Provider).order_by(Provider.priority))
         providers = result.scalars().all()
         out = []
@@ -806,7 +886,7 @@ async def create_provider(data: ProviderCreate, _: dict = Depends(require_admin)
             status_code=400,
             detail="NVIDIA Smart is a built-in provider. Configure it from Admin → NVIDIA Smart instead of adding a generic provider.",
         )
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         p = Provider(
             id=data.id or shortuuid.uuid(),
             name=data.name,
@@ -833,7 +913,7 @@ async def create_provider(data: ProviderCreate, _: dict = Depends(require_admin)
 
 @router.put("/providers/{provider_id}", response_model=ProviderResponse)
 async def update_provider(provider_id: str, data: ProviderUpdate, _: dict = Depends(require_admin)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(Provider).where(Provider.id == provider_id))
         p = result.scalar_one_or_none()
         if not p:
@@ -859,7 +939,7 @@ async def update_provider(provider_id: str, data: ProviderUpdate, _: dict = Depe
 
 @router.delete("/providers/{provider_id}")
 async def delete_provider(provider_id: str, _: dict = Depends(require_admin)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(Provider).where(Provider.id == provider_id))
         p = result.scalar_one_or_none()
         if not p:
@@ -875,7 +955,7 @@ async def delete_provider(provider_id: str, _: dict = Depends(require_admin)):
 
 @router.post("/providers/{provider_id}/test")
 async def test_provider(provider_id: str, _: dict = Depends(require_admin)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(Provider).where(Provider.id == provider_id))
         p = result.scalar_one_or_none()
         if not p:
@@ -893,7 +973,7 @@ async def sync_provider_models(provider_id: str, _: dict = Depends(require_admin
     Reconciles the Model table to match the upstream: creates missing rows,
     updates renamed ones, and DELETES rows that are no longer advertised.
     """
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(Provider).where(Provider.id == provider_id))
         p = result.scalar_one_or_none()
         if not p:
@@ -901,9 +981,15 @@ async def sync_provider_models(provider_id: str, _: dict = Depends(require_admin
         if not p.api_key:
             raise HTTPException(status_code=400, detail="Provider has no API key configured")
 
-        from app.providers.adapters import OpenAIAdapter
+        from app.providers.adapters import OpenAIAdapter, UpstreamError
         adapter = OpenAIAdapter(name=p.id, base_url=p.base_url, api_key=p.api_key)
-        remote_ids = await adapter.list_models()
+        try:
+            remote_ids = await adapter.list_models()
+        except UpstreamError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Provider rejected the request ({exc.status_code} {exc.code}): {exc.message or exc.code}. Check the provider API key.",
+            )
         if not remote_ids:
             remote_ids = list(p.models or [])
 
@@ -923,14 +1009,14 @@ async def sync_provider_models(provider_id: str, _: dict = Depends(require_admin
 # ─── Routing Rules (admin only) ──────────────────────────────
 @router.get("/routing", response_model=list[RoutingRuleResponse])
 async def list_routing_rules(_: dict = Depends(require_admin)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(RoutingRule).order_by(RoutingRule.priority.desc()))
         return [RoutingRuleResponse.model_validate(r) for r in result.scalars().all()]
 
 
 @router.post("/routing", response_model=RoutingRuleResponse)
 async def create_routing_rule(data: RoutingRuleCreate, _: dict = Depends(require_admin)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         r = RoutingRule(
             id=shortuuid.uuid(),
             name=data.name,
@@ -951,7 +1037,7 @@ async def create_routing_rule(data: RoutingRuleCreate, _: dict = Depends(require
 
 @router.put("/routing/{rule_id}", response_model=RoutingRuleResponse)
 async def update_routing_rule(rule_id: str, data: RoutingRuleUpdate, _: dict = Depends(require_admin)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(RoutingRule).where(RoutingRule.id == rule_id))
         r = result.scalar_one_or_none()
         if not r:
@@ -967,7 +1053,7 @@ async def update_routing_rule(rule_id: str, data: RoutingRuleUpdate, _: dict = D
 
 @router.delete("/routing/{rule_id}")
 async def delete_routing_rule(rule_id: str, _: dict = Depends(require_admin)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(RoutingRule).where(RoutingRule.id == rule_id))
         r = result.scalar_one_or_none()
         if not r:
@@ -980,7 +1066,7 @@ async def delete_routing_rule(rule_id: str, _: dict = Depends(require_admin)):
 # ─── Users (admin only — never accessible to regular users) ──
 @router.get("/users", response_model=list[UserResponse])
 async def list_users(_: dict = Depends(require_admin)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(User).order_by(User.created_at.desc()))
         return [UserResponse.model_validate(u) for u in result.scalars().all()]
 
@@ -996,7 +1082,7 @@ async def create_user(data: UserCreate, _: dict = Depends(require_admin)):
     if normalized_email == settings.ADMIN_EMAIL.lower():
         raise HTTPException(status_code=409, detail="This email address belongs to the admin")
 
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         existing = await session.execute(select(User).where(func.lower(User.email) == normalized_email))
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Email already registered")
@@ -1040,7 +1126,7 @@ async def create_user(data: UserCreate, _: dict = Depends(require_admin)):
 
 @router.put("/users/{user_id}", response_model=UserResponse)
 async def update_user(user_id: str, data: UserUpdate, _: dict = Depends(require_admin)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(User).where(User.id == user_id))
         u = result.scalar_one_or_none()
         if not u:
@@ -1056,7 +1142,7 @@ async def update_user(user_id: str, data: UserUpdate, _: dict = Depends(require_
 
 @router.delete("/users/{user_id}")
 async def delete_user(user_id: str, _: dict = Depends(require_admin)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(User).where(User.id == user_id))
         u = result.scalar_one_or_none()
         if not u:
@@ -1078,7 +1164,7 @@ async def delete_user(user_id: str, _: dict = Depends(require_admin)):
         return {"deleted": True}
 @router.get("/analytics")
 async def get_analytics(days: int = 7, _: dict = Depends(require_admin)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         since = datetime.utcnow() - timedelta(days=days)
         count_result = await session.execute(
             select(func.count(RequestLog.id)).where(RequestLog.created_at >= since)
@@ -1128,7 +1214,7 @@ async def get_analytics(days: int = 7, _: dict = Depends(require_admin)):
 @router.get("/analytics/me")
 async def my_analytics(days: int = 7, payload: dict = Depends(require_user)):
     """User-scoped analytics — only this user's data."""
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         since = datetime.utcnow() - timedelta(days=days)
         user_id = payload["sub"]
         count_result = await session.execute(
@@ -1165,7 +1251,7 @@ async def my_analytics(days: int = 7, payload: dict = Depends(require_user)):
 # ─── Logs ───────────────────────────────────────────────────
 @router.get("/logs/me")
 async def get_my_logs(limit: int = 100, offset: int = 0, payload: dict = Depends(require_user)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(
             select(RequestLog)
             .where(RequestLog.user_id == payload["sub"])
@@ -1186,7 +1272,7 @@ async def get_my_logs(limit: int = 100, offset: int = 0, payload: dict = Depends
 
 @router.get("/logs")
 async def get_logs(limit: int = 100, offset: int = 0, _: dict = Depends(require_admin)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(
             select(RequestLog)
             .order_by(RequestLog.created_at.desc())
@@ -1220,7 +1306,7 @@ async def list_models(payload: dict = Depends(require_user)):
         smart_enabled = False
         smart_config = None
 
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(Model).where(Model.enabled == True))
         models = result.scalars().all()
 
@@ -1269,7 +1355,7 @@ async def list_models(payload: dict = Depends(require_user)):
 # ─── Models write (admin only) ──────────────────────────────
 @router.post("/models")
 async def create_model(data: dict, _: dict = Depends(require_admin)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         m = Model(
             id=data.get("id", shortuuid.uuid()),
             name=data.get("name", ""),
@@ -1286,7 +1372,7 @@ async def create_model(data: dict, _: dict = Depends(require_admin)):
 
 @router.put("/models/{model_id}")
 async def update_model(model_id: str, data: dict, _: dict = Depends(require_admin)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(Model).where(Model.id == model_id))
         m = result.scalar_one_or_none()
         if not m:
@@ -1300,7 +1386,7 @@ async def update_model(model_id: str, data: dict, _: dict = Depends(require_admi
 
 @router.delete("/models/{model_id}")
 async def delete_model(model_id: str, _: dict = Depends(require_admin)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(Model).where(Model.id == model_id))
         m = result.scalar_one_or_none()
         if not m:
@@ -1314,7 +1400,7 @@ async def delete_model(model_id: str, _: dict = Depends(require_admin)):
 @router.get("/public/models")
 async def public_models():
     """Public model catalog — anyone (even logged out) can see what models exist."""
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(
             select(Model).where(Model.enabled == True, Model.is_active == True)
         )
@@ -1333,7 +1419,7 @@ async def public_models():
 @router.get("/api-keys")
 async def list_my_keys(payload: dict = Depends(require_user)):
     """List the API keys owned by the current user."""
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(
             select(APIKey).where(APIKey.user_id == payload["sub"]).order_by(APIKey.created_at.desc())
         )
@@ -1358,7 +1444,7 @@ async def create_my_key(data: dict, payload: dict = Depends(require_user)):
     """
     name = (data or {}).get("name", "").strip() or "My API key"
     raw_key = create_api_key()
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         # Check if user already has 5 or more keys
         count_result = await session.execute(
             select(func.count(APIKey.id)).where(APIKey.user_id == payload["sub"])
@@ -1389,7 +1475,7 @@ async def create_my_key(data: dict, payload: dict = Depends(require_user)):
 
 @router.delete("/api-keys/{key_id}")
 async def delete_my_key(key_id: str, payload: dict = Depends(require_user)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(
             select(APIKey).where(APIKey.id == key_id, APIKey.user_id == payload["sub"])
         )
@@ -1525,7 +1611,7 @@ async def test_provider_key(body: TestKeyBody, _: dict = Depends(require_admin))
 
 @router.get("/gateway/me")
 async def get_my_gateway(payload: dict = Depends(require_user)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(User).where(User.id == payload["sub"]))
         user = result.scalar_one_or_none()
         if not user:
@@ -1563,7 +1649,7 @@ async def upsert_my_gateway(body: GatewayConfigBody, payload: dict = Depends(req
     parsed_base_url = __import__("urllib.parse", fromlist=["urlparse"]).urlparse(body.base_url)
     if parsed_base_url.username or parsed_base_url.password or not parsed_base_url.netloc:
         raise HTTPException(status_code=400, detail="Base URL is invalid")
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         user_result = await session.execute(select(User).where(User.id == payload["sub"]))
         user = user_result.scalar_one_or_none()
         if not user:
@@ -1595,7 +1681,7 @@ async def upsert_my_gateway(body: GatewayConfigBody, payload: dict = Depends(req
 @router.post("/personal-gateway/{config_id}/test")
 async def test_my_gateway(config_id: str, payload: dict = Depends(require_user)):
     started = time.perf_counter()
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(
             select(UserGatewayConfig).where(
                 UserGatewayConfig.id == config_id,
@@ -1628,7 +1714,7 @@ async def test_my_gateway(config_id: str, payload: dict = Depends(require_user))
 
 @router.delete("/gateway/me/{config_id}")
 async def delete_my_gateway(config_id: str, payload: dict = Depends(require_user)):
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(UserGatewayConfig).where(UserGatewayConfig.id == config_id, UserGatewayConfig.user_id == payload["sub"]))
         config = result.scalar_one_or_none()
         if not config:

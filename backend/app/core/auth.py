@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy import select
 
 from app.core.config import settings
-from app.db.session import async_session_maker
+from app.db import session as db_session
 from app.db.models import User, APIKey
 
 ALGORITHM = "HS256"
@@ -131,7 +131,7 @@ async def get_current_user_full(authorization: str = Header(None)) -> dict:
     (e.g. for permission checks that depend on data the token may be stale on).
     """
     payload = await require_user(authorization)
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         result = await session.execute(select(User).where(User.id == payload["sub"]))
         user = result.scalar_one_or_none()
         if not user:

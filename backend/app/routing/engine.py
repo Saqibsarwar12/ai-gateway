@@ -1,4 +1,4 @@
-"""Intelligent routing engine for provider selection.
+"""Intelligent routing engine with typed error propagation.
 
 Key behaviours:
 - Model IDs may be passed as either a bare name (e.g. "gpt-4o") or as
@@ -9,12 +9,20 @@ Key behaviours:
   provider via make_adapter, so Anthropic providers work too.
 - Fallback only tries providers that actually serve the requested model
   (when that information is available), then any remaining providers.
+- Every upstream failure raises a typed UpstreamError; when all providers
+  fail, AllProvidersFailed carries the last typed error so the gateway can
+  surface the REAL cause (bad key / missing model / rate limit / outage)
+  instead of a blanket 500.
 """
 import asyncio
+import logging
 import random
-from typing import Optional
+import time
+from typing import Optional, List, AsyncIterator
 
-from app.providers.adapters import make_adapter, ProviderAdapter
+from app.providers.adapters import make_adapter, ProviderAdapter, UpstreamError
+
+logger = logging.getLogger(__name__)
 
 
 def _split_model(model: str) -> tuple[Optional[str], str]:
@@ -22,7 +30,7 @@ def _split_model(model: str) -> tuple[Optional[str], str]:
 
     "openai-main/gpt-4o" -> ("openai-main", "gpt-4o")
     "gpt-4o"             -> (None, "gpt-4o")
-    "auto"              -> (None, "auto")
+    "auto"               -> (None, "auto")
     """
     if "/" in model:
         prefix, _, rest = model.partition("/")
@@ -35,12 +43,27 @@ def _provider_has_model(provider: dict, bare_model: str) -> bool:
     models = provider.get("models") or []
     if not models:
         return True  # unknown model list -> assume it can serve it
-    # models may be stored as bare names or prefixed; compare on the tail
     for m in models:
         m_tail = m.split("/")[-1] if isinstance(m, str) else m
         if m_tail == bare_model:
             return True
     return False
+
+
+class AllProvidersFailed(Exception):
+    """Every candidate provider failed.
+
+    Carries per-provider error strings plus the last typed UpstreamError
+    (if any) so the gateway can map the real cause to the correct
+    client-facing HTTP status.
+    """
+
+    def __init__(self, errors: List[str], last_error: Optional[UpstreamError] = None, tried: Optional[List[str]] = None):
+        self.errors = errors
+        self.last_error = last_error
+        self.tried = tried or []
+        summary = "; ".join(errors[-3:]) if errors else "no providers configured"
+        super().__init__(f"All providers failed: {summary}")
 
 
 class RoutingEngine:
@@ -49,90 +72,149 @@ class RoutingEngine:
     Strategies: fallback | cost | latency | round_robin | weighted | priority
     """
 
-    def __init__(self, providers: list[dict], strategy: str = "fallback"):
+    def __init__(self, providers: List[dict], strategy: str = "fallback"):
         self.providers = providers
-        self.strategy = strategy
+        self.strategy = strategy or "fallback"
         self._rr_index = 0
-        self.last_provider = None
+        self.last_provider: Optional[str] = None
 
-    def _ordered_providers(self, model: str) -> tuple[str, list[dict]]:
-        """Return (bare_model, providers ordered by suitability for the model).
+    def _ordered_providers(self, model: str) -> tuple[Optional[str], str, List[dict]]:
+        """Return (target_provider_id, bare_model, providers ordered by suitability).
 
-    1. If model is prefixed with a provider id, that provider goes first.
-    2. Providers that list the bare model come next.
-    3. All remaining providers follow (so fallback still works).
+        1. If model is prefixed with a provider id, that provider goes first.
+        2. Providers that list the bare model come next.
+        3. All remaining providers follow (so fallback still works).
         """
         target_provider_id, bare_model = _split_model(model)
-
-        targeted = [p for p in self.providers if target_provider_id and p["id"] == target_provider_id]
+        targeted = [p for p in self.providers if target_provider_id and p.get("id") == target_provider_id]
         has_model = [
             p for p in self.providers
-            if p not in targeted and _provider_has_model(p, bare_model)
+            if p not in targeted and p.get("enabled", True) and _provider_has_model(p, bare_model)
         ]
-        rest = [p for p in self.providers if p not in targeted and p not in has_model]
+        rest = [p for p in self.providers if p not in targeted and p not in has_model and p.get("enabled", True)]
         ordered = targeted + has_model + rest
-        return bare_model, (ordered or list(self.providers))
+        return target_provider_id, bare_model, ordered
 
-    async def chat(self, model: str, messages: list[dict], **kwargs):
+    def _get_adapter(self, provider: dict) -> ProviderAdapter:
+        return make_adapter(provider)
+
+    async def _with_retry(self, adapter: ProviderAdapter, model: str, messages: list, attempts: int = 2, **kwargs) -> dict:
+        """Retry transient upstream failures on one provider.
+
+        4xx client errors (bad key, missing model, bad request) are
+        deterministic — they are NOT retried.
+        """
+        last_exc: Optional[UpstreamError] = None
+        for i in range(attempts):
+            try:
+                return await adapter.chat(model, messages, **kwargs)
+            except UpstreamError as exc:
+                last_exc = exc
+                if exc.status_code < 500:
+                    raise
+                if i < attempts - 1:
+                    await asyncio.sleep(1.5 * (i + 1))
+            except Exception:
+                raise
+        raise last_exc  # pragma: no cover - unreachable when attempts >= 1
+
+    async def chat(self, model: str, messages: list, **kwargs) -> dict:
         if not self.providers:
-            raise Exception("No providers configured")
+            raise AllProvidersFailed(["no providers configured"], tried=[])
 
         if self.strategy == "round_robin":
             return await self._round_robin(model, messages, **kwargs)
         if self.strategy == "weighted":
             return await self._weighted(model, messages, **kwargs)
-        # cost / latency currently fall through to ordered fallback
+        # cost / latency / priority currently fall through to ordered fallback
         return await self._fallback(model, messages, **kwargs)
 
-    def _get_adapter(self, provider: dict) -> ProviderAdapter:
-        return make_adapter(provider)
-
-    async def _call_provider(self, adapter: ProviderAdapter, model: str, messages: list[dict], **kwargs):
-        return await asyncio.wait_for(
-            adapter.chat(model, messages, **kwargs),
-            timeout=kwargs.get("timeout", 60),
-        )
-
-    async def _fallback(self, model: str, messages: list[dict], **kwargs):
-        """Try suitable providers in order until one succeeds."""
-        bare_model, providers = self._ordered_providers(model)
-        errors = []
+    async def chat_stream(self, model: str, messages: list, **kwargs) -> AsyncIterator[str]:
+        target_id, bare_model, providers = self._ordered_providers(model)
+        errors: List[str] = []
+        last_error: Optional[UpstreamError] = None
         for provider in providers:
             try:
                 adapter = self._get_adapter(provider)
-                result = await self._call_provider(adapter, bare_model, messages, **kwargs)
-                self.last_provider = provider["id"]
-                return result
-            except Exception as e:
-                errors.append(f"{provider['id']}: {str(e)}")
-                continue
-        raise Exception(f"All providers failed: {'; '.join(errors[-3:])}")
+                got_any = False
+                async for chunk in adapter.chat_stream(bare_model, messages, **kwargs):
+                    got_any = True
+                    yield chunk
+                self.last_provider = provider.get("id")
+                return
+            except UpstreamError as exc:
+                last_error = exc
+                errors.append(f"{provider.get('id')}: {exc.status_code} {exc.code}: {exc.message or exc.code}")
+                logger.warning(f"[engine] stream {provider.get('id')} failed for {model}: {exc}")
+                if exc.status_code < 500:
+                    raise
+            except Exception as exc:
+                errors.append(f"{provider.get('id')}: {type(exc).__name__}: {exc}")
+                logger.warning(f"[engine] stream {provider.get('id')} unexpected error for {model}: {exc}")
+        raise AllProvidersFailed(errors, last_error, [e.split(":", 1)[0] for e in errors])
 
-    async def _round_robin(self, model: str, messages: list[dict], **kwargs):
-        bare_model, providers = self._ordered_providers(model)
+    async def _fallback(self, model: str, messages: list, **kwargs) -> dict:
+        """Try suitable providers in order until one succeeds."""
+        target_id, bare_model, providers = self._ordered_providers(model)
+        errors: List[str] = []
+        tried: List[str] = []
+        last_error: Optional[UpstreamError] = None
+        for provider in providers:
+            try:
+                adapter = self._get_adapter(provider)
+                started = time.time()
+                result = await self._with_retry(adapter, bare_model, messages, **kwargs)
+                elapsed = int((time.time() - started) * 1000)
+                self.last_provider = provider.get("id")
+                logger.info(f"[engine] {provider.get('id')} served {bare_model} in {elapsed}ms")
+                result.setdefault("model", model)
+                result["_provider"] = provider.get("id")
+                result["_latency_ms"] = elapsed
+                return result
+            except UpstreamError as exc:
+                last_error = exc
+                tried.append(str(provider.get("id")))
+                errors.append(f"{provider.get('id')}: {exc.status_code} {exc.code}: {exc.message or exc.code}")
+                logger.warning(f"[engine] {provider.get('id')} failed for {bare_model}: {exc}")
+            except asyncio.TimeoutError:
+                tried.append(str(provider.get("id")))
+                errors.append(f"{provider.get('id')}: timeout")
+                logger.warning(f"[engine] {provider.get('id')} timed out for {bare_model}")
+            except Exception as exc:
+                tried.append(str(provider.get("id")))
+                errors.append(f"{provider.get('id')}: {type(exc).__name__}: {exc}")
+                logger.warning(f"[engine] {provider.get('id')} unexpected error for {bare_model}: {exc}")
+        raise AllProvidersFailed(errors, last_error, tried)
+
+    async def _round_robin(self, model: str, messages: list, **kwargs) -> dict:
+        target_id, bare_model, providers = self._ordered_providers(model)
         provider = providers[self._rr_index % len(providers)]
         self._rr_index += 1
-        adapter = self._get_adapter(provider)
         try:
-            result = await self._call_provider(adapter, bare_model, messages, **kwargs)
-            self.last_provider = provider["id"]
+            adapter = self._get_adapter(provider)
+            result = await self._with_retry(adapter, bare_model, messages, **kwargs)
+            self.last_provider = provider.get("id")
+            result.setdefault("model", model)
+            result["_provider"] = provider.get("id")
             return result
         except Exception:
             # On failure, fall back to trying the rest
             return await self._fallback(model, messages, **kwargs)
 
-    async def _weighted(self, model: str, messages: list[dict], **kwargs):
-        bare_model, providers = self._ordered_providers(model)
-        weights = kwargs.get("weights", {})
+    async def _weighted(self, model: str, messages: list, **kwargs) -> dict:
+        target_id, bare_model, providers = self._ordered_providers(model)
+        weights = kwargs.pop("weights", {}) or {}
         rand = random.random()
         cumulative = 0.0
         for provider in providers:
-            cumulative += weights.get(provider["id"], 1.0 / len(providers))
+            cumulative += weights.get(provider.get("id"), 1.0 / max(1, len(providers)))
             if rand <= cumulative:
-                adapter = self._get_adapter(provider)
                 try:
-                    result = await self._call_provider(adapter, bare_model, messages, **kwargs)
-                    self.last_provider = provider["id"]
+                    adapter = self._get_adapter(provider)
+                    result = await self._with_retry(adapter, bare_model, messages, **kwargs)
+                    self.last_provider = provider.get("id")
+                    result.setdefault("model", model)
+                    result["_provider"] = provider.get("id")
                     return result
                 except Exception:
                     break

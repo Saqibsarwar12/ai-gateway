@@ -268,7 +268,7 @@ export type PromptInput = {
   name: string;
   model_pattern: string;
   content: string;
-  preset: 'custom' | 'extreme_directness';
+  preset: 'custom' | 'extreme_directness' | 'uncensored_extreme';
   is_active: boolean;
   is_default: boolean;
 };

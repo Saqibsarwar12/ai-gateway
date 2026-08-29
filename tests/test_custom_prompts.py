@@ -17,13 +17,23 @@ os.environ.update({
     'ADMIN_EMAIL': 'admin@example.com',
     'SECRET_KEY': 'prompt-test-secret',
 })
+# Make the cached settings singleton reflect THIS module's env (it was created at first import by an earlier test module)
+import sys as _sys
+_backend_dir = str(__import__("pathlib").Path(__file__).parents[1] / "backend")
+if _backend_dir not in _sys.path:
+    _sys.path.insert(0, _backend_dir)
+from app.core.config import settings as _settings_singleton
+_settings_singleton.refresh_from_env()
+
 
 import sys
 sys.path.insert(0, str(Path(__file__).parents[1] / 'backend'))
 
 from app.api.v1.admin import PromptBody, create_my_prompt, update_my_prompt, list_my_prompts
 from app.db.models import Base, User, CustomPrompt
-from app.db.session import async_session_maker, engine
+from app.db import session as db_session
+
+db_session.reconfigure_from_env()
 from app.services.prompts import (
     EXTREME_DIRECTNESS_PROMPT,
     combine_with_system_prompt,
@@ -36,9 +46,9 @@ from app.services.prompts import (
 @pytest.fixture(scope='module', autouse=True)
 def setup_db():
     async def create():
-        async with engine.begin() as connection:
+        async with db_session.engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
-        async with async_session_maker() as session:
+        async with db_session.async_session_maker() as session:
             session.add_all([
                 User(id='u1', name='User One', email='u1@example.com', role='user', is_active=True, email_verified_at=datetime.utcnow()),
                 User(id='u2', name='User Two', email='u2@example.com', role='user', is_active=True, email_verified_at=datetime.utcnow()),
@@ -55,7 +65,7 @@ async def test_preset_and_model_matching():
     with pytest.raises(HTTPException):
         normalize_model_pattern('gpt-*o')
 
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         wildcard = CustomPrompt(id='wild', user_id='u1', name='wild', model_pattern='gpt-*', content='wild', is_default=True, is_active=True)
         exact = CustomPrompt(id='exact', user_id='u1', name='exact', model_pattern='gpt-4o', content='exact', is_default=True, is_active=True)
         session.add_all([wildcard, exact])
@@ -71,7 +81,7 @@ async def test_prompt_crud_is_user_owned_and_defaults_are_scoped():
     assert first['user_id'] if 'user_id' in first else True
     assert second['preset'] == 'extreme_directness'
 
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         rows1 = (await session.execute(select(CustomPrompt).where(CustomPrompt.user_id == 'u1'))).scalars().all()
         rows2 = (await session.execute(select(CustomPrompt).where(CustomPrompt.user_id == 'u2'))).scalars().all()
         assert sum(bool(row.is_default) for row in rows1) == 1

@@ -17,6 +17,14 @@ os.environ.update({
     'BREVO_SMTP': '',
     'SMTP_HOST': '',
 })
+# Make the cached settings singleton reflect THIS module's env (it was created at first import by an earlier test module)
+import sys as _sys
+_backend_dir = str(__import__("pathlib").Path(__file__).parents[1] / "backend")
+if _backend_dir not in _sys.path:
+    _sys.path.insert(0, _backend_dir)
+from app.core.config import settings as _settings_singleton
+_settings_singleton.refresh_from_env()
+
 
 import sys
 sys.path.insert(0, str(Path(__file__).parents[1] / 'backend'))

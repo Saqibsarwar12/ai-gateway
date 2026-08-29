@@ -7,6 +7,72 @@ import asyncio
 from typing import Optional, AsyncIterator, Any
 
 
+class UpstreamError(Exception):
+    """Typed upstream provider failure, parsed from the provider's response.
+
+    Carries the HTTP status the provider returned, a machine-readable code
+    (e.g. "invalid_api_key", "model_not_found") and the provider's own
+    message, so the gateway can surface the REAL cause to clients instead of
+    a generic 500 "All providers failed".
+    """
+
+    def __init__(
+        self,
+        status_code: int,
+        code: str,
+        message: Optional[str] = None,
+        retry_after: Optional[int] = None,
+        provider_id: Optional[str] = None,
+    ):
+        self.status_code = status_code
+        self.code = code
+        self.message = message
+        self.retry_after = retry_after
+        self.provider_id = provider_id
+        super().__init__(f"{status_code} {code}: {message or code}")
+
+
+def parse_upstream_error(response: httpx.Response, provider_id: Optional[str] = None) -> UpstreamError:
+    """Build an UpstreamError from an httpx >=400 response, keeping the body."""
+    status = response.status_code
+    code = f"http_{status}"
+    message = None
+    retry_after = None
+    raw_retry = response.headers.get("retry-after")
+    if raw_retry:
+        try:
+            retry_after = max(1, min(int(float(raw_retry)), 900))
+        except (TypeError, ValueError):
+            retry_after = None
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict):
+        err = payload.get("error")
+        if isinstance(err, dict):
+            candidate = err.get("code") or err.get("type")
+            if isinstance(candidate, str) and candidate:
+                code = candidate[:80]
+            msg = err.get("message")
+            if isinstance(msg, str):
+                message = msg[:300]
+        elif isinstance(err, str):
+            message = err[:300]
+        if message is None:
+            for key in ("message", "detail", "title"):
+                val = payload.get(key)
+                if isinstance(val, str) and val:
+                    message = val[:300]
+                    break
+    if message is None:
+        try:
+            message = response.text[:300]
+        except Exception:
+            message = None
+    return UpstreamError(status, code, message, retry_after, provider_id)
+
+
 class ProviderAdapter:
     """Universal OpenAI-compatible provider adapter."""
 
@@ -50,7 +116,8 @@ class ProviderAdapter:
                 headers=self._headers(),
                 json={"model": model, "messages": messages, **{k: v for k, v in kwargs.items() if v is not None}},
             )
-            r.raise_for_status()
+            if r.status_code >= 400:
+                raise parse_upstream_error(r, provider_id=self.name)
             return r.json()
 
     async def chat_stream(self, model: str, messages: list, **kwargs) -> AsyncIterator[str]:
@@ -61,6 +128,18 @@ class ProviderAdapter:
                 headers=self._headers(),
                 json={"model": model, "messages": messages, "stream": True, **{k: v for k, v in kwargs.items() if v is not None}},
             ) as r:
+                if r.status_code >= 400:
+                    body = (await r.aread()).decode("utf-8", "replace")
+
+                    class _ShimResponse:
+                        status_code = r.status_code
+                        headers = r.headers
+                        text = body
+
+                        def json(self):
+                            return json.loads(body)
+
+                    raise parse_upstream_error(_ShimResponse(), provider_id=self.name)
                 async for line in r.aiter_lines():
                     if line.startswith("data: "):
                         yield line[6:]
@@ -82,12 +161,18 @@ class ProviderAdapter:
         try:
             async with self._client() as client:
                 r = await client.get(f"{self.base_url}/models", headers=self._headers())
-                return {
+                result = {
                     "ok": r.status_code == 200,
                     "latency_ms": int((time.time() - start) * 1000),
                     "status_code": r.status_code,
                     "provider": self.name,
                 }
+                if r.status_code >= 400:
+                    parsed = parse_upstream_error(r, provider_id=self.name)
+                    result["code"] = parsed.code
+                    result["message"] = parsed.message
+                    result["error"] = f"{parsed.code}: {parsed.message or parsed.code}"
+                return result
         except Exception as e:
             return {"ok": False, "latency_ms": 0, "error": str(e), "provider": self.name}
 
@@ -124,7 +209,8 @@ class AnthropicAdapter(ProviderAdapter):
                 },
                 json=body,
             )
-            r.raise_for_status()
+            if r.status_code >= 400:
+                raise parse_upstream_error(r, provider_id=self.name)
             data = r.json()
             return {
                 "id": data.get("id", ""),

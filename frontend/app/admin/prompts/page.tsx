@@ -6,6 +6,13 @@ import { apiCreatePrompt, apiDeletePrompt, apiListPrompts, apiUpdatePrompt } fro
 import type { CustomPrompt, PromptInput } from '@/lib/api';
 
 const EXTREME_DIRECTNESS = 'extreme_directness';
+const UNCENSORED_EXTREME = 'uncensored_extreme';
+const PRESET_PROMPTS = new Set<string>([EXTREME_DIRECTNESS, UNCENSORED_EXTREME]);
+const PRESET_LABELS: Record<string, string> = {
+  custom: 'Custom',
+  [EXTREME_DIRECTNESS]: 'Extreme Directness',
+  [UNCENSORED_EXTREME]: 'Uncensored (Extreme)',
+};
 const emptyForm: PromptInput = {
   name: '',
   model_pattern: '*',
@@ -49,7 +56,7 @@ export default function PromptsPage() {
     setEditor({
       name: prompt.name,
       model_pattern: prompt.model_pattern,
-      content: prompt.preset === EXTREME_DIRECTNESS ? '' : prompt.content,
+      content: PRESET_PROMPTS.has(prompt.preset) ? '' : prompt.content,
       preset: prompt.preset,
       is_active: prompt.is_active,
       is_default: prompt.is_default,
@@ -104,7 +111,7 @@ export default function PromptsPage() {
         </p>
         {notice && <div className="badge badge-info" style={{ marginBottom: '0.75rem' }}>{notice}</div>}
         {prompts.length === 0 ? (
-          <div className="empty-box">No prompts yet. Add one for a model or use <b>Extreme Directness</b> for a concise, low-hedging style.</div>
+          <div className="empty-box">No prompts yet. Add one for a model, use <b>Extreme Directness</b> for a concise style, or <b>Uncensored (Extreme)</b> for an unfiltered private style.</div>
         ) : (
           <div className="table-wrap">
             <table className="tbl">
@@ -114,7 +121,7 @@ export default function PromptsPage() {
                   <tr key={prompt.id}>
                     <td className="text-sm wrap">{prompt.name}{prompt.is_default && <span className="dim text-xs"> · default</span>}</td>
                     <td className="mono text-xs">{prompt.model_pattern}</td>
-                    <td><Badge variant={prompt.preset === EXTREME_DIRECTNESS ? 'warn' : 'default'}>{prompt.preset === EXTREME_DIRECTNESS ? 'Extreme Directness' : 'Custom'}</Badge></td>
+                    <td><Badge variant={prompt.preset === UNCENSORED_EXTREME ? 'err' : prompt.preset === EXTREME_DIRECTNESS ? 'warn' : 'default'}>{PRESET_LABELS[prompt.preset] || 'Custom'}</Badge></td>
                     <td><Badge variant={prompt.is_active ? 'ok' : 'mute'}>{prompt.is_active ? 'Active' : 'Off'}</Badge></td>
                     <td><div className="row" style={{ justifyContent: 'flex-end' }}><Button size="sm" variant="ghost" onClick={() => openEdit(prompt)}>Edit</Button><Button size="sm" variant="danger" onClick={() => remove(prompt)}>Delete</Button></div></td>
                   </tr>
@@ -126,12 +133,12 @@ export default function PromptsPage() {
       </Card>
 
       {editor && (
-        <Modal open title={editingId ? 'Edit prompt' : 'Add prompt'} onClose={() => setEditor(null)} width="lg" footer={<div className="row" style={{ justifyContent: 'flex-end' }}><Button variant="ghost" onClick={() => setEditor(null)}>Cancel</Button><Button onClick={save} disabled={saving || !editor.name.trim() || (editor.preset === 'custom' && !editor.content.trim())}>{saving ? 'Saving…' : 'Save prompt'}</Button></div>}>
+        <Modal open title={editingId ? 'Edit prompt' : 'Add prompt'} onClose={() => setEditor(null)} width="lg" footer={<div className="row" style={{ justifyContent: 'flex-end' }}><Button variant="ghost" onClick={() => setEditor(null)}>Cancel</Button><Button onClick={save} disabled={saving || !editor.name.trim() || (!PRESET_PROMPTS.has(editor.preset) && !editor.content.trim())}>{saving ? 'Saving…' : 'Save prompt'}</Button></div>}>
           <div className="stack">
             <Input label="Name" value={editor.name} onChange={(v) => setEditor({ ...editor, name: v })} placeholder="e.g. API architect" maxLength={80} />
             <Input label="Model target" value={editor.model_pattern} onChange={(v) => setEditor({ ...editor, model_pattern: v })} hint="Use an exact model ID or a trailing wildcard such as gpt-4o*." maxLength={255} />
-            <Select label="Preset" value={editor.preset} onChange={(v) => setEditor({ ...editor, preset: v as PromptInput['preset'] })} options={[{ value: 'custom', label: 'Custom prompt' }, { value: EXTREME_DIRECTNESS, label: 'Extreme Directness' }]} hint="Extreme Directness removes filler and hedging but does not bypass safety or provider controls." />
-            {editor.preset === 'custom' && <Textarea label="Prompt" value={editor.content} onChange={(v) => setEditor({ ...editor, content: v })} rows={10} placeholder="Describe how the model should respond…" hint="Maximum 12,000 characters." />}
+            <Select label="Preset" value={editor.preset} onChange={(v) => setEditor({ ...editor, preset: v as PromptInput['preset'] })} options={[{ value: 'custom', label: 'Custom prompt' }, { value: EXTREME_DIRECTNESS, label: 'Extreme Directness' }, { value: UNCENSORED_EXTREME, label: 'Uncensored (Extreme)' }]} hint="Extreme Directness trims filler. Uncensored (Extreme) removes refusals and safety commentary for private use — provider limits and hard illegal-content rules still apply." />
+            {!PRESET_PROMPTS.has(editor.preset) && <Textarea label="Prompt" value={editor.content} onChange={(v) => setEditor({ ...editor, content: v })} rows={10} placeholder="Describe how the model should respond…" hint="Maximum 12,000 characters." />}
             <label className="row" style={{ gap: '0.5rem', cursor: 'pointer' }}><input type="checkbox" checked={editor.is_default} onChange={(e) => setEditor({ ...editor, is_default: e.target.checked })} /><span className="text-sm">Use as this account's default prompt for matching models</span></label>
             <label className="row" style={{ gap: '0.5rem', cursor: 'pointer' }}><input type="checkbox" checked={editor.is_active} onChange={(e) => setEditor({ ...editor, is_active: e.target.checked })} /><span className="text-sm">Active</span></label>
           </div>
