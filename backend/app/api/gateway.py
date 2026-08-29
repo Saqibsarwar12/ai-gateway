@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from app.models.schemas import ChatCompletionRequest
 from app.routing.engine import RoutingEngine, AllProvidersFailed
 from app.db import session as db_session
-from app.db.models import Provider, RoutingRule, RequestLog, User, Model
+from app.db.models import Provider, RoutingRule, RequestLog, User, Model, APIKey
 from app.core.rate_limit import rate_limiter
 from app.core.auth import decode_token
 from app.core.config import settings
@@ -20,6 +20,7 @@ import json
 from app.routing.nvidia_smart import NvidiaSmartRouter, NvidiaUpstreamError
 from app.providers.adapters import UpstreamError
 from app.services.prompts import load_user_prompt, combine_with_system_prompt
+from datetime import datetime
 
 # Tier hierarchy: a v3 user can call v1, v2, v3
 TIER_ORDER = ["v1", "v2", "v3"]
@@ -83,6 +84,26 @@ async def _resolve_actor(
                 "tier": user.tier or "v1",
                 "label": "api_key",
             }
+
+    # Try dashboard API keys (APIKey table — keys created via /keys page)
+    async with db_session.async_session_maker() as session:
+        result = await session.execute(
+            select(APIKey).where(APIKey.key == token, APIKey.is_active == True)
+        )
+        ak = result.scalar_one_or_none()
+        if ak and (not ak.expires_at or ak.expires_at > datetime.utcnow()):
+            result2 = await session.execute(
+                select(User).where(User.id == ak.user_id)
+            )
+            user = result2.scalar_one_or_none()
+            if user and user.is_active and (user.role == "admin" or user.email_verified_at):
+                return {
+                    "id": user.id,
+                    "role": user.role,
+                    "tier": user.tier or "v1",
+                    "label": "api_key",
+                    "key_id": ak.id,
+                }
 
     raise HTTPException(
         status_code=401,
