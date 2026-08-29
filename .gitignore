@@ -4,3 +4,7 @@ __pycache__/
 backend/ai_gateway.db
 *.db
 .env
+
+# local credential/backup files
+ADMIN_CREDENTIALS.txt
+*.db.bak*
