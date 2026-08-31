@@ -117,11 +117,12 @@ app.add_middleware(
 )
 
 # ─── API Routes ────────────────────────────────────────────────────
+# Admin routes must be registered BEFORE personal gateway to avoid /admin/v1 being matched as /{username}/v1
+app.include_router(admin.router, prefix="/admin", tags=["Admin"])
+app.include_router(nvidia_smart_admin_router)
 app.include_router(make_openai_router("v1"), prefix="/v1", tags=["AI Gateway v1"])
 app.include_router(make_openai_router("v2"), prefix="/v2", tags=["AI Gateway v2"])
 app.include_router(make_openai_router("v3"), prefix="/v3", tags=["AI Gateway v3"])
-app.include_router(admin.router, prefix="/admin", tags=["Admin"])
-app.include_router(nvidia_smart_admin_router)
 app.include_router(personal_gateway_router, prefix="/{username}/v1", tags=["Personal Gateway"])
 
 
