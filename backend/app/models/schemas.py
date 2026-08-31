@@ -65,6 +65,7 @@ class ProviderCreate(BaseModel):
     api_key: Optional[str] = ""
     models: List[str] = []
     enabled: bool = True
+    enabled: bool = True
     is_active: bool = True
     priority: int = 100
     max_rpm: int = 1000
@@ -99,6 +100,7 @@ class ProviderResponse(BaseModel):
     base_url: str
     api_key: Optional[str] = None
     models: List[str] = []
+    enabled: bool = True
     is_active: bool = True
     priority: int = 100
     extra_data: Optional[Dict[str, Any]] = None

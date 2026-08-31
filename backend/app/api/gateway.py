@@ -291,6 +291,7 @@ def make_openai_router(version: str) -> APIRouter:
                         "models": provider_model_map.get(p.id, p.models or []),
                         "requires_proxy": p.requires_proxy,
                         "proxy_url": p.proxy_url,
+                        "is_active": p.enabled,
                     }
                     for p in providers
                 ]
@@ -318,7 +319,7 @@ def make_openai_router(version: str) -> APIRouter:
                     (not (p.get("models") or []))
                     or req.model in (p.get("models") or [])
                     or _bare(req.model) in (p.get("models") or [])
-                    for p in provider_data
+                    for p in provider_data if p.get("is_active", True)
                 )
                 use_smart = smart_in_rule and (not covered or req.model == "auto")
             if not use_smart:
@@ -327,7 +328,7 @@ def make_openai_router(version: str) -> APIRouter:
                 # provider and returning a misleading 500.
                 if provider_data and not any(
                     (not (p.get("models") or [])) or req.model in (p.get("models") or []) or _bare(req.model) in (p.get("models") or [])
-                    for p in provider_data
+                    for p in provider_data if p.get("is_active", True)
                 ):
                     available = sorted({m for p in provider_data for m in (p.get("models") or [])})
                     raise HTTPException(

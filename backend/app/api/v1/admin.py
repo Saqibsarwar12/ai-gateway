@@ -809,6 +809,7 @@ async def list_providers(payload: dict = Depends(require_user)):
                 base_url="https://integrate.api.nvidia.com/v1",
                 api_key=None,
                 models=[smart_config.public_model_id],
+                enabled=smart_config.enabled,
                 is_active=smart_config.enabled,
                 priority=-1,  # sort last
                 extra_data={
