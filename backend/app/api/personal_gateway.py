@@ -150,6 +150,7 @@ async def personal_chat(username: str, req: ChatCompletionRequest, request: Requ
                             yield f"{chunk}\n\n"
                     async for payload in stream_agen:
                         if payload == "[DONE]":
+                            yield "data: [DONE]\n\n"
                             break
                         chunk = payload if payload.startswith("data: ") else f"data: {payload}"
                         yield f"{chunk}\n\n"
