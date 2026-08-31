@@ -1,13 +1,14 @@
 import re
 from urllib.parse import urlparse
-from typing import Optional
+from typing import Optional  # noqa: F401
 
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import select
+from fastapi.responses import StreamingResponse
 
 from app.core.auth import decode_token, decrypt_gateway_secret
 from app.core.config import settings
-from app.db.models import APIKey, Model, User, UserGatewayConfig
+from app.db.models import APIKey, User, UserGatewayConfig
 from app.db import session as db_session
 from app.models.schemas import ChatCompletionRequest
 from app.providers.adapters import make_adapter, UpstreamError
@@ -117,6 +118,55 @@ async def personal_chat(username: str, req: ChatCompletionRequest, request: Requ
         async with db_session.async_session_maker() as session:
             prompt = await load_user_prompt(session, actor["id"], model, req.prompt_id)
         messages = combine_with_system_prompt(messages, prompt.content if prompt else None)
+
+        if req.stream:
+            stream_agen = adapter.chat_stream(
+                model,
+                messages,
+                temperature=req.temperature,
+                max_tokens=req.max_tokens,
+                top_p=req.top_p,
+                stop=req.stop,
+            )
+            # Pull the first chunk BEFORE returning so immediate provider
+            # failures (bad key, unknown model, rate limit) surface as real
+            # HTTP errors instead of a 200 SSE with an error buried inside.
+            first_chunk = None
+            try:
+                first_chunk = await stream_agen.__anext__()
+            except StopAsyncIteration:
+                first_chunk = None
+            except UpstreamError:
+                await stream_agen.aclose()
+                raise
+
+            async def _sse():
+                try:
+                    if first_chunk is not None:
+                        if first_chunk == "[DONE]":
+                            yield "data: [DONE]\n\n"
+                        else:
+                            chunk = first_chunk if first_chunk.startswith("data: ") else f"data: {first_chunk}"
+                            yield f"{chunk}\n\n"
+                    async for payload in stream_agen:
+                        if payload == "[DONE]":
+                            break
+                        chunk = payload if payload.startswith("data: ") else f"data: {payload}"
+                        yield f"{chunk}\n\n"
+                except (UpstreamError, HTTPException):
+                    # A mid-stream upstream failure yields a terminal SSE
+                    # error event so OpenAI-compatible clients never hang.
+                    yield "data: {\"error\": {\"message\": \"Personal provider request failed mid-stream\", \"type\": \"upstream_error\", \"code\": \"provider_request_failed\"}}\n\n"
+                    yield "data: [DONE]\n\n"
+                finally:
+                    await stream_agen.aclose()
+
+            return StreamingResponse(
+                _sse(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+            )
+
         return await adapter.chat(
             model,
             messages,
