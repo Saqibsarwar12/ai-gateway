@@ -124,6 +124,9 @@ app.include_router(make_openai_router("v1"), prefix="/v1", tags=["AI Gateway v1"
 app.include_router(make_openai_router("v2"), prefix="/v2", tags=["AI Gateway v2"])
 app.include_router(make_openai_router("v3"), prefix="/v3", tags=["AI Gateway v3"])
 app.include_router(personal_gateway_router, prefix="/{username}/v1", tags=["Personal Gateway"])
+# Root-level alias so OpenAI clients work with base URL https://saki-gateway.indevs.in
+# with or without a trailing /v1 (Zo and most SDKs append /chat/completions directly).
+app.include_router(make_openai_router("v1"), prefix="", tags=["AI Gateway (root alias)"])
 
 
 @app.get("/health")
