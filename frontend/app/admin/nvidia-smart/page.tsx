@@ -44,6 +44,9 @@ export default function NvidiaSmartPage() {
   const [label, setLabel] = useState('');
   const [modelId, setModelId] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [bulkModel, setBulkModel] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editModel, setEditModel] = useState('');
   const [message, setMessage] = useState<string | null>(null);
 
   async function load() {
@@ -130,6 +133,47 @@ export default function NvidiaSmartPage() {
     }
   }
 
+  async function saveAccountModel(account: Account) {
+    if (!editModel.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/nvidia-smart/accounts/${account.id}`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: account.label, model_id: editModel.trim(), enabled: account.enabled }),
+      });
+      if (!res.ok) throw new Error('Could not update model');
+      setEditingId(null);
+      setMessage(`Model updated for ${account.label}`);
+      await load();
+    } catch (e: any) {
+      setMessage(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function applyModelToAll() {
+    if (!bulkModel.trim()) return;
+    if (!window.confirm(`Set model "${bulkModel.trim()}" for ALL accounts?`)) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/nvidia-smart/accounts-model`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model_id: bulkModel.trim() }),
+      });
+      if (!res.ok) throw new Error('Could not update all accounts');
+      const data = await res.json();
+      setMessage(`Model set to ${data.model_id} on ${data.updated} accounts`);
+      await load();
+    } catch (e: any) {
+      setMessage(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function deleteAccount(account: Account) {
     if (!window.confirm(`Delete ${account.label}?`)) return;
     setSaving(true);
@@ -200,12 +244,27 @@ export default function NvidiaSmartPage() {
           <div className="text-xs muted">Keys are encrypted before storage and are never returned by the API or shown in logs.</div>
           <Button type="submit" variant="secondary" disabled={saving || accounts.length >= 50}>{saving ? 'Adding…' : 'Add NVIDIA account'}</Button>
         </form>
+        <div className="stack" style={{ marginBottom: '1.25rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border, #333)' }}>
+          <div className="text-sm" style={{ fontWeight: 600 }}>Change model for all accounts</div>
+          <div className="grid-2">
+            <Input label="Model ID for every account" value={bulkModel} onChange={setBulkModel} placeholder="moonshotai/kimi-k3" />
+          </div>
+          <Button variant="secondary" onClick={applyModelToAll} disabled={saving || accounts.length === 0 || !bulkModel.trim()}>{saving ? 'Applying…' : 'Apply to all accounts'}</Button>
+        </div>
         {accounts.length === 0 ? <div className="empty-box text-sm muted">No NVIDIA accounts configured.</div> : (
           <div className="table-wrap">
             <table className="tbl"><thead><tr><th>Account</th><th>Model</th><th>Status</th><th>Success / failures</th><th>Actions</th></tr></thead>
               <tbody>{accounts.map((account) => <tr key={account.id}>
                 <td><div>{account.label}</div><div className="text-xs dim mono">{account.has_api_key ? 'credential stored' : 'missing credential'}</div></td>
-                <td className="mono text-xs wrap">{account.model_id}</td>
+                <td className="mono text-xs wrap">{editingId === account.id ? (
+                  <div className="row">
+                    <input className="input" value={editModel} onChange={(e) => setEditModel(e.target.value)} />
+                    <Button size="sm" variant="primary" onClick={() => saveAccountModel(account)} disabled={saving}>Save</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Cancel</Button>
+                  </div>
+                ) : (
+                  <span>{account.model_id} <Button size="sm" variant="ghost" onClick={() => { setEditingId(account.id); setEditModel(account.model_id); }}>Edit</Button></span>
+                )}</td>
                 <td><Badge variant={account.status === 'healthy' ? 'ok' : account.status === 'cooling_down' ? 'warn' : 'err'}>{account.status}</Badge></td>
                 <td className="mono text-xs">{account.success_count} / {account.failure_count}</td>
                 <td><div className="row"><Button size="sm" variant="ghost" onClick={() => toggleAccount(account)} disabled={saving}>{account.enabled ? 'Disable' : 'Enable'}</Button><Button size="sm" variant="danger" onClick={() => deleteAccount(account)} disabled={saving}>Delete</Button></div></td>

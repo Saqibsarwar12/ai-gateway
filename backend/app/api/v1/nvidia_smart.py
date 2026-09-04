@@ -31,6 +31,10 @@ class SmartConfigBody(BaseModel):
     enabled: bool = True
 
 
+class BulkModelBody(BaseModel):
+    model_id: str = Field(min_length=1, max_length=255)
+
+
 class SmartAccountBody(BaseModel):
     label: str = Field(min_length=1, max_length=120)
     api_key: Optional[str] = Field(default=None, min_length=1, max_length=4096)
@@ -148,6 +152,42 @@ async def update_nvidia_account(account_id: str, body: SmartAccountBody, _: dict
         await session.commit()
     await invalidate_cache()
     return public_account_view(account)
+
+
+class SmartBulkModelBody(BaseModel):
+    model_id: str = Field(min_length=1, max_length=255)
+
+
+@router.put("/admin/nvidia-smart/accounts-model")
+async def set_model_for_all_accounts(body: SmartBulkModelBody, _: dict = Depends(require_admin)):
+    model_id = body.model_id.strip()
+    async with db_session.async_session_maker() as session:
+        result = await session.execute(select(NvidiaSmartAccount))
+        accounts = result.scalars().all()
+        for account in accounts:
+            account.model_id = model_id
+            account.updated_at = datetime.utcnow()
+        await session.commit()
+    await invalidate_cache()
+    return {"updated": len(accounts), "model_id": model_id}
+
+
+@router.put("/admin/nvidia-smart/accounts-model")
+async def set_model_for_all_accounts(body: BulkModelBody, _: dict = Depends(require_admin)):
+    async with db_session.async_session_maker() as session:
+        config = await _load_admin_config(session)
+        if not config:
+            raise HTTPException(status_code=404, detail="NVIDIA Smart is not configured")
+        result = await session.execute(
+            select(NvidiaSmartAccount).where(NvidiaSmartAccount.config_id == config.id)
+        )
+        accounts = result.scalars().all()
+        for account in accounts:
+            account.model_id = body.model_id.strip()
+            account.updated_at = datetime.utcnow()
+        await session.commit()
+    await invalidate_cache()
+    return {"updated": len(accounts), "model_id": body.model_id.strip()}
 
 
 @router.delete("/admin/nvidia-smart/accounts/{account_id}")
