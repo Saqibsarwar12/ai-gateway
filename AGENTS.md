@@ -19,8 +19,9 @@ deploy: FastAPI on Render, frontend static export on Vercel
   show it.
 - `frontend/lib/auth.tsx` — Client-side auth. `API_BASE` is `process.env.NEXT_PUBLIC_API_URL || ''`.
   Do NOT hardcode any fallback URL.
-- `frontend/app/keys/page.tsx` — User's API key dashboard. Must use
-  `process.env.NEXT_PUBLIC_API_URL` only, no hardcoded fallback.
+- `frontend/app/keys/page.tsx` — REMOVED (June 2026, commit 8d09bd2f):
+  Clerk/user-auth was dropped; login redirects to `/admin` and keys are
+  shown at `/admin/keys`. `/keys` returns 404 by design.
 - `run/start.sh` — Local backend launcher. Sets `USE_SQLITE=true`,
   `ADMIN_EMAIL=admin@sakigateway.local`, `ADMIN_PASSWORD=Saki@Gateway2026!`,
   `SECRET_KEY=...`.
@@ -77,3 +78,55 @@ deploy: FastAPI on Render, frontend static export on Vercel
   at 15 min idle). GitHub Actions disabled on account (Actions has been
   disabled for this user) — do not rely on .github/workflows.
 - Admin creds: see run/start.sh (ADMIN_EMAIL/ADMIN_PASSWORD).
+
+## Runtime facts (verified 2026-10-02)
+
+- **Smart routing depends on `routing_rules.provider_order` being parsed
+  as a Python list.** It is a SQLAlchemy JSON column — do NOT run
+  `json.loads()` on it blindly. That bug threw, was swallowed, emptied
+  `rule_order`, disabled `smart_in_rule`, and every model except
+  `nvidia-smart` fell into an empty engine → 503 "no providers
+  configured". Fixed in `gateway.py` (accept list or string).
+- **Only provider left**: the pseudo-provider `__nvidia_smart__`
+  (`providers` table). The HCNSEC reseller is no longer in the provider
+  order. `auto` and any model name no provider covers fall through to
+  NVIDIA Smart; `/v1/models` lists `nvidia-smart` and `auto`.
+- **NVIDIA accounts**: all 6 on `nvidia/nemotron-3-ultra-550b-a55b`.
+  `moonshotai/kimi-k3` HANGS (>90 s) upstream — never set accounts to
+  it (bulk set via `PUT /admin/nvidia-smart/accounts-model`). Occasional
+  transient 503 "Service temporarily overloaded" is normal. Timeouts /
+  network errors (status_code=None) MUST rotate to the next account
+  instead of abandoning the pool — see `routing/nvidia_smart.py` chat().
+- **D1 shim applies model defaults** (`db/d1_session.py`): the adapter
+  builds INSERT/UPDATE SQL itself and never runs ORM flush, so
+  `_model_to_dict(..., apply_defaults=True)` now applies Python-side
+  column defaults on INSERT and `onupdate` on UPDATE. Previously every
+  default column stored NULL — all 142 `request_logs.created_at` were
+  NULL, which zeroed `/admin/analytics` forever. Old rows keep NULL
+  (they sort last in `ORDER BY created_at DESC`); counters grow from
+  deploy time onward.
+- **Deploying without local git/node/vercel**: push via GitHub REST
+  (blob → tree → commit → ref on `master`; Render auto-deploys). Frontend
+  via `POST https://api.vercel.com/v13/deployments?teamId=<team>` with
+  `files: [{file, data}]` where `data` is the RAW UTF-8 file text — not
+  base64, no `sha`/`size` fields (they 400). Build settings come from
+  `frontend/vercel.json` (`NEXT_OUTPUT=export npm run build`).
+- **Vercel static-page/API collisions**: `/admin/{providers,users,models,
+  routing,analytics,logs}` GETs return the Next.js page on the Vercel
+  domain (filesystem wins over rewrites). The admin client works because
+  it calls baked `https://saki-gateway.indevs.in`. Non-colliding paths
+  (`/admin/auth/*`, `/admin/api-keys`, `/admin/nvidia-smart/*`) proxy
+  fine. Root aliases `/chat/completions` + `/completions` rewrite to
+  indevs.in (401 without key, 200 with key).
+
+## System verification (2026-10-02)
+
+- Chat 200 via BOTH domains for `auto`, `gpt-4o`, `nvidia-smart`; SSE
+  streaming OK; bad key → 401 chat (models list intentionally open).
+- Admin API 200 JSON on Render: auth/me, providers, models, api-keys,
+  routing, analytics, logs, users, nvidia-smart/configuration (same via
+  Vercel for the non-colliding paths).
+- Register → Brevo email → verify-code (wrong code → 400 + attempts
+  left) verified. Browser UI login → `/admin`, providers + NVIDIA-Smart
+  pages load live data (bulk "Set model for all" UI present), zero
+  console errors; all pages 200; `/docs` loads OpenAPI (62 paths).

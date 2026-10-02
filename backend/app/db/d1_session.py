@@ -20,15 +20,28 @@ from sqlalchemy import Select
 from app.db.cloudflare import fetchall, execute
 
 
-def _model_to_dict(obj) -> dict:
+def _model_to_dict(obj, apply_defaults: bool = False) -> dict:
     """Convert a SQLAlchemy model instance to a flat dict for D1.
     Includes ALL columns — even None values — so INSERT OR REPLACE
     doesn't silently NULL out unmentioned columns.
     Booleans → 0/1 (SQLAlchemy emits WHERE col=1 for bool comparisons).
+
+    apply_defaults=True emulates SQLAlchemy's Python-side column defaults
+    (e.g. created_at=datetime.utcnow, models=list). The real ORM applies
+    those while flushing; this shim builds INSERTs itself, so without it
+    every default column landed as NULL — request_logs.created_at was
+    NULL for all rows, which zeroed out /admin/analytics (COUNT over
+    created_at >= since) and left /admin/logs ordering on NULLs.
     """
     data = {}
     for col in obj.__table__.columns:
         val = getattr(obj, col.name, None)
+        if val is None and apply_defaults and col.default is not None:
+            try:
+                arg = col.default.arg
+                val = arg() if callable(arg) else arg
+            except Exception:
+                pass  # keep None — same behaviour as before this fix
         if val is not None:
             if isinstance(val, datetime):
                 val = val.isoformat()
@@ -302,13 +315,25 @@ class D1Session:
         for key, snapshot in list(self._snapshots.items()):
             obj = self._objects.get(key)
             if obj and _is_dirty(obj, snapshot):
+                # Emulate SQLAlchemy's onupdate (e.g. updated_at) for
+                # columns the caller didn't explicitly change.
+                for col in obj.__table__.columns:
+                    if col.onupdate is None:
+                        continue
+                    if _normalize(getattr(obj, col.name, None)) == snapshot.get(col.name):
+                        try:
+                            arg = col.onupdate.arg
+                            setattr(obj, col.name, arg() if callable(arg) else arg)
+                        except Exception:
+                            pass
                 data = _model_to_dict(obj)
                 sql, params = _upsert_sql(obj.__tablename__, data)
                 await execute(sql, params)
 
-        # 2. Process adds
+        # 2. Process adds — apply Python-side column defaults here because
+        # this shim never runs the ORM flush machinery that normally would.
         for obj in self._adds:
-            data = _model_to_dict(obj)
+            data = _model_to_dict(obj, apply_defaults=True)
             sql, params = _upsert_sql(obj.__tablename__, data)
             await execute(sql, params)
 

@@ -117,7 +117,7 @@ class PendingRegistration(Base):
     expires_at = Column(DateTime, nullable=False)
     code_attempts = Column(Integer, default=0, nullable=False)
     last_attempt_at = Column(DateTime)
-    created_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class CustomPrompt(Base):
