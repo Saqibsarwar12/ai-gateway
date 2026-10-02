@@ -20,6 +20,33 @@ from sqlalchemy import Select
 from app.db.cloudflare import fetchall, execute
 
 
+def _eval_default(generator):
+    """Evaluate a SQLAlchemy Column ``default``/``onupdate`` generator.
+
+    Scalars are returned as-is. Callables need care: SQLAlchemy 2.0 wraps
+    zero-arg callables (datetime.utcnow, list, dict) into
+    CallableColumnDefault whose ``arg`` takes a single ExecutionContext
+    argument — calling ``arg()`` raises TypeError. Try the zero-arg form
+    first (older/unwrapped callables), then the context-taking form.
+    Returns None when no usable value can be produced.
+    """
+    if generator is None:
+        return None
+    arg = getattr(generator, "arg", None)
+    if arg is None or not callable(arg):
+        return arg  # scalar default (0, False, "", "chat", ...) or none
+    try:
+        return arg()
+    except TypeError:
+        pass  # context-wrapped: fall through and pass a dummy context
+    except Exception:
+        return None
+    try:
+        return arg(None)
+    except Exception:
+        return None
+
+
 def _model_to_dict(obj, apply_defaults: bool = False) -> dict:
     """Convert a SQLAlchemy model instance to a flat dict for D1.
     Includes ALL columns — even None values — so INSERT OR REPLACE
@@ -38,8 +65,7 @@ def _model_to_dict(obj, apply_defaults: bool = False) -> dict:
         val = getattr(obj, col.name, None)
         if val is None and apply_defaults and col.default is not None:
             try:
-                arg = col.default.arg
-                val = arg() if callable(arg) else arg
+                val = _eval_default(col.default)
             except Exception:
                 pass  # keep None — same behaviour as before this fix
         if val is not None:
@@ -321,11 +347,9 @@ class D1Session:
                     if col.onupdate is None:
                         continue
                     if _normalize(getattr(obj, col.name, None)) == snapshot.get(col.name):
-                        try:
-                            arg = col.onupdate.arg
-                            setattr(obj, col.name, arg() if callable(arg) else arg)
-                        except Exception:
-                            pass
+                        newval = _eval_default(col.onupdate)
+                        if newval is not None:
+                            setattr(obj, col.name, newval)
                 data = _model_to_dict(obj)
                 sql, params = _upsert_sql(obj.__tablename__, data)
                 await execute(sql, params)
