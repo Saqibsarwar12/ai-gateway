@@ -647,6 +647,18 @@ def make_openai_router(version: str) -> APIRouter:
                 "root": smart_config.public_model_id,
             })
 
+        # "auto" is the documented example model (homepage/docs quickstart):
+        # it routes through NVIDIA Smart when no regular provider covers it.
+        # List it whenever Smart is available so clients discover it.
+        if smart_config and "auto" not in seen:
+            models.append({
+                "id": "auto",
+                "object": "model",
+                "created": 1700000000,
+                "owned_by": "gateway (auto-routing)",
+                "root": smart_config.public_model_id,
+            })
+
         return {"object": "list", "data": models}
 
     @router.get("/health")

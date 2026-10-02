@@ -261,7 +261,17 @@ class NvidiaSmartRouter:
                 except NvidiaUpstreamError as exc:
                     last_error = exc
                     await self._persist_state(account, False, exc.status_code, exc.code, exc.retry_after)
-                    if exc.status_code not in TRANSIENT_STATUS_CODES and exc.status_code not in AUTH_STATUS_CODES:
+                    # Timeouts/network errors carry status_code=None. Those are
+                    # per-account failures worth rotating past - a single hung
+                    # account must not abandon the whole pool (previously it
+                    # failed the request with 503 nvidia_accounts_unavailable
+                    # even though 5 healthy accounts were never tried).
+                    # Non-transient HTTP errors (other 4xx) still stop rotation.
+                    if (
+                        exc.status_code is not None
+                        and exc.status_code not in TRANSIENT_STATUS_CODES
+                        and exc.status_code not in AUTH_STATUS_CODES
+                    ):
                         break
                 finally:
                     await self._release_account(account)
