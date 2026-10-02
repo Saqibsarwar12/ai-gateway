@@ -215,6 +215,22 @@ def _upsert_sql(table_name: str, data: dict) -> tuple:
     return sql, list(data.values())
 
 
+class Row(dict):
+    """D1 row dict that also supports SQLAlchemy Row-style integer indexing.
+
+    Analytics queries do ``row[0]``, ``row[1]``, ``row[2]`` on ``.one()``
+    results (positional column access). A plain dict only accepts string
+    keys, so integer indexing raised TypeError and /admin/analytics 500'd
+    as soon as it stopped short-circuiting on empty data. Key access keeps
+    working (this is a dict subclass), so nothing else changes.
+    """
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return list(dict.values(self))[key]
+        return dict.__getitem__(self, key)
+
+
 class D1Result:
     """Minimal result wrapper that mimics SQLAlchemy's Result."""
 
@@ -268,15 +284,31 @@ class D1Result:
     def one(self):
         if not self._rows:
             raise StopIteration()
-        return self._rows[0]
+        row = self._rows[0]
+        return Row(row) if isinstance(row, dict) else row
 
     def scalar_one(self):
-        """Exactly one row, raise if 0 or >1."""
+        """Exactly one row, raise if 0 or >1.
+
+        Returns the materialized model for entity selects (SQLAlchemy
+        semantics: row[0] of a single-entity select is the entity) or the
+        first column's value for aggregate selects. Previously returned
+        the raw row dict, so ``u.credits`` in /admin/analytics/me raised
+        AttributeError once that code path became reachable.
+        """
         if not self._rows:
             raise ValueError("No rows found")
         if len(self._rows) > 1:
             raise ValueError(f"Expected 1, got {len(self._rows)}")
-        return self._rows[0]
+        row = self._rows[0]
+        if self._model_class:
+            obj = _row_to_model(row, self._model_class)
+            if self.session:
+                self.session._track(obj)
+            return obj
+        if isinstance(row, dict):
+            return list(row.values())[0] if row else None
+        return row
 
 
 class D1Session:
