@@ -308,11 +308,24 @@ def make_openai_router(version: str) -> APIRouter:
                 return tail if sep and head in provider_ids else m
 
             if use_smart and req.model != smart_config.public_model_id:
+                # rule.provider_order is a SQLAlchemy JSON column: it arrives as a
+                # Python list (occasionally as a JSON string). Calling json.loads()
+                # on a list raises, which previously emptied rule_order and
+                # silently disabled Smart routing for every model except the
+                # public id - "auto"/other models then fell into the empty
+                # provider engine and returned 503 "no providers configured".
+                # Normalize both shapes instead of swallowing the error.
                 rule_order = []
                 if rule:
-                    try:
-                        rule_order = json.loads(rule.provider_order or "[]")
-                    except Exception:
+                    raw_order = rule.provider_order if rule.provider_order is not None else []
+                    if isinstance(raw_order, list):
+                        rule_order = list(raw_order)
+                    elif isinstance(raw_order, str):
+                        try:
+                            rule_order = json.loads(raw_order or "[]")
+                        except Exception:
+                            rule_order = []
+                    if not isinstance(rule_order, list):
                         rule_order = []
                 smart_in_rule = "__nvidia_smart__" in rule_order or not rule
                 covered = any(
@@ -323,10 +336,12 @@ def make_openai_router(version: str) -> APIRouter:
                 )
                 use_smart = smart_in_rule and (not covered or req.model == "auto")
             if not use_smart:
-                # Short-circuit: if NO enabled provider can serve this model,
-                # fail fast with a clear 404 instead of hammering every
-                # provider and returning a misleading 500.
-                if provider_data and not any(
+                # Short-circuit: if NO enabled provider can serve this model
+                # (including the case where there are no enabled providers at
+                # all), fail fast with a clear OpenAI-style 404 instead of
+                # hammering every provider and returning a misleading 500/502
+                # ("All providers failed ... no providers configured").
+                if not any(
                     (not (p.get("models") or [])) or req.model in (p.get("models") or []) or _bare(req.model) in (p.get("models") or [])
                     for p in provider_data if p.get("is_active", True)
                 ):

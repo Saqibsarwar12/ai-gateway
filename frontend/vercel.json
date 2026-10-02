@@ -12,6 +12,14 @@
       "destination": "https://saki-gateway.indevs.in/models"
     },
     {
+      "source": "/chat/completions",
+      "destination": "https://saki-gateway.indevs.in/chat/completions"
+    },
+    {
+      "source": "/completions",
+      "destination": "https://saki-gateway.indevs.in/completions"
+    },
+    {
       "source": "/api-proxy/:path*",
       "destination": "https://saki-gateway.indevs.in/:path*"
     },
